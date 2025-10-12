@@ -10,11 +10,25 @@
 
 Système de détection de stress filament en temps réel pour imprimantes 3D utilisant deux capteurs Hall SS49E et un microcontrôleur ESP32. Le système détecte trois états distincts : **compression**, **neutre**, et **tension** grâce à une logique différentielle avancée.
 
-**🔬 Basé sur :** Ce projet est une revisite et amélioration du [Voron ERCF Filament Stress Sensor](https://github.com/jmillerfo/voron-ercf-filament-stress-sensor) de **jmillerfo**, adapté pour l'ESP32 avec interface web moderne et intégration Happy Hare optimisée.
+**🔬 Basé sur :** Ce projet est une revisite et amélioration du [Voron ERCF Filament Stress Sensor](https://www.printables.com/model/803180-voron-ercf-filament-stress-sensor) de **jmillerfo**, adapté pour l'ESP32 avec interface web moderne et intégration Happy Hare optimisée.
 
 **🎯 Intégration MMU :** Conçu pour s'intégrer avec [Happy Hare](https://github.com/moggieuk/Happy-Hare) dans Klipper/Kalico pour la gestion automatique du Multi-Material Unit (MMU). Le détecteur fournit les signaux de stress au firmware Klipper qui gère ensuite la logique de rétraction/avancement du filament.
 
 **🖨️ Testé sur :** Voron 2.4 R2 avec carte BIGTREETECH MMB CAN V1.1
+
+## 📸 Galerie
+
+### Interface Web
+![Interface Web](docs/interface_web.png)
+*Interface web moderne avec monitoring temps réel et contrôles de calibration*
+
+### Capteur ESP32
+![Capteur ESP32](docs/ERFC_capteur_ESP32.PNG)
+*Module ESP32 avec capteurs Hall SS49E intégrés*
+
+### Imprimante Voron 2.4 R2
+![Voron 2.4 R2](docs/voron_face.PNG)
+*Configuration de test sur Voron 2.4 R2 avec stack BTT complet*
 
 ## ✨ Fonctionnalités
 
@@ -76,8 +90,6 @@ sync_multiplier_low: 0.95
 
 autotune_rotation_distance: 1
 ```
-
-
 
 
 **Macros Klipper personnalisées :**
@@ -250,15 +262,15 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de 
 ## 🔗 Liens utiles
 
 - [Happy Hare MMU](https://github.com/moggieuk/Happy-Hare) - Multi-Material Unit pour Klipper
-- [Voron ERCF Filament Stress Sensor](https://github.com/jmillerfo/voron-ercf-filament-stress-sensor) - Projet original par jmillerfo
+- [Voron ERCF Filament Stress Sensor](https://www.printables.com/model/803180-voron-ercf-filament-stress-sensor) - Projet original par jmillerfo
 - [Documentation Klipper](https://www.klipper3d.org/) - Firmware 3D printer
 - [Raspberry Pi 4B](https://www.raspberrypi.org/products/raspberry-pi-4-model-b/) - Contrôleur principal
 - [Waveshare 4.3" Display](https://www.waveshare.com/4.3inch-dsi-lcd.htm) - Écran tactile DSI
-- [Peek-a-boo Display Mod](https://github.com/fbeauKmi/peek-a-boo-display) - Mod d'affichage par fbeauKmi
+- [Peek-a-boo Display Mod](https://www.printables.com/model/747183-peek-a-boo-display) - Mod d'affichage par fbeauKmi
 - [BTT Octopus Pro V1.1](https://github.com/bigtreetech/BIGTREETECH-OCTOPUS-Pro) - Carte mère principale
 - [BTT U2C CAN](https://github.com/bigtreetech/U2C) - Interface CAN Bus USB
 - [BTT MMB CAN](https://github.com/bigtreetech/MMB) - Carte MMU CAN Bus
-- [BTT SB2209](https://github.com/bigtreetech/SB2209) - Toolhead CAN Board
+- [BTT SB2209](https://github.com/bigtreetech/EBB) - Toolhead CAN Board
 - [TMC5160 Datasheet](https://www.trinamic.com/products/integrated-circuits/details/tmc5160/) - Drivers 48V haute performance
 - [BambuLab Hotend](https://bambulab.com/) - Système hotend haute performance
 - [Documentation ESP32](https://docs.espressif.com/projects/esp-idf/en/latest/)
