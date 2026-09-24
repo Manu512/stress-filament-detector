@@ -116,6 +116,10 @@ function updateUI(data) {
     }
   }
   
+  // Champs ajoutes par la version proportionnelle. Appel en tete pour que
+  // l'affichage reste coherent meme si un champ historique manque.
+  majMesure(data);
+
   if (data.position !== undefined) {
     updateCurrentState(data.position);
   }
@@ -261,3 +265,120 @@ function captureNeutral() {
     console.log('WebSocket non connecté');
   }
 }
+
+// ---------------------------------------------------------------------------
+// Sortie proportionnelle, reglages avances et reseau
+// ---------------------------------------------------------------------------
+
+const PHASES_WIFI = ["inactif", "connexion...", "connecte", "nouvelle tentative", "point d'acces"];
+
+function envoyer(objet) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(objet));
+    return true;
+  }
+  console.log('WebSocket non connecte');
+  return false;
+}
+
+function confirmerBouton(id, texte) {
+  const b = document.getElementById(id);
+  if (!b) return;
+  const initial = b.textContent;
+  b.textContent = texte;
+  b.style.background = 'linear-gradient(135deg, #28a745, #20c997)';
+  setTimeout(() => { b.textContent = initial; b.style.background = ''; }, 2000);
+}
+
+// Les champs de saisie ne sont reecrits par le module que lorsqu'ils n'ont pas
+// le focus : sinon la valeur serait ecrasee pendant la frappe, a chaque
+// rafraichissement.
+function majChamp(id, valeur) {
+  const e = document.getElementById(id);
+  if (e && document.activeElement !== e && valeur !== undefined) e.value = valeur;
+}
+
+function majMesure(data) {
+  if (data.delta !== undefined) {
+    const e = document.getElementById('delta');
+    if (e) e.textContent = data.delta;
+  }
+  if (data.span !== undefined) {
+    const e = document.getElementById('deltaSpan');
+    if (e) e.textContent = `pleine echelle ±${data.span}`;
+  }
+  if (data.dac !== undefined) {
+    const e = document.getElementById('dac');
+    if (e) e.textContent = data.dac;
+  }
+  if (data.tension_permille !== undefined) {
+    const e = document.getElementById('tensionLevel');
+    if (e) e.textContent = `tension ${data.tension_permille} ‰`;
+  }
+  if (data.analog_out !== undefined) {
+    const e = document.getElementById('modeSortie');
+    if (e) {
+      e.textContent = data.analog_out ? 'type P (analogique)' : 'type D (tout ou rien)';
+      e.className = data.analog_out ? 'output-value high' : 'output-value low';
+    }
+  }
+  majChamp('inZone',  data.neutral_zone);
+  majChamp('inHyst',  data.hysteresis);
+  majChamp('inSpan',  data.span);
+  majChamp('inAlpha', data.alpha);
+
+  if (data.wifi_phase !== undefined) {
+    const e = document.getElementById('wifiPhase');
+    if (e) {
+      e.textContent = PHASES_WIFI[data.wifi_phase] || '?';
+      e.className = (data.wifi_phase === 2) ? 'output-value high' : 'output-value low';
+    }
+  }
+  if (data.wifi_ip !== undefined || data.wifi_ssid !== undefined) {
+    const e = document.getElementById('wifiInfo');
+    if (e) e.textContent = `${data.wifi_ssid || '—'} / ${data.wifi_ip || '—'}`;
+  }
+}
+
+function brancherControles() {
+  const brancher = (id, action) => {
+    const b = document.getElementById(id);
+    if (b) b.addEventListener('click', action);
+  };
+
+  brancher('btnModeD', () => {
+    if (envoyer({ cmd: 'set_analog_output', enabled: false })) confirmerBouton('btnModeD', '✅ Type D');
+  });
+  brancher('btnModeP', () => {
+    if (envoyer({ cmd: 'set_analog_output', enabled: true })) confirmerBouton('btnModeP', '✅ Type P');
+  });
+  brancher('btnCapSpan', () => {
+    if (envoyer({ cmd: 'capture_span' })) confirmerBouton('btnCapSpan', '✅ Capturé');
+  });
+
+  brancher('btnSaveAdv', () => {
+    const n = (id) => parseInt(document.getElementById(id).value, 10);
+    const cmd = { cmd: 'save_simple_calibration' };
+    const z = n('inZone'), h = n('inHyst'), sp = n('inSpan'), a = n('inAlpha');
+    if (!isNaN(z))  cmd.deadband_points = z;
+    if (!isNaN(h))  cmd.hysteresis = h;
+    if (!isNaN(sp)) cmd.span = sp;
+    if (!isNaN(a))  cmd.alpha = a;
+    if (envoyer(cmd)) confirmerBouton('btnSaveAdv', '✅ Enregistré');
+  });
+
+  brancher('btnSaveWifi', () => {
+    const ssid = document.getElementById('inSsid').value;
+    const pass = document.getElementById('inPass').value;
+    if (!ssid) { alert('Renseignez le SSID'); return; }
+    if (envoyer({ cmd: 'set_wifi', ssid: ssid, password: pass })) {
+      document.getElementById('inPass').value = '';
+      confirmerBouton('btnSaveWifi', '✅ Connexion...');
+    }
+  });
+  brancher('btnForgetWifi', () => {
+    if (envoyer({ cmd: 'forget_wifi' })) confirmerBouton('btnForgetWifi', '✅ Oublié');
+  });
+}
+
+document.addEventListener('DOMContentLoaded', brancherControles);

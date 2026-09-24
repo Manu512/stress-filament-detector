@@ -88,6 +88,27 @@
                     <span class="output-value low" id="output2">LOW</span>
                 </div>
             </div>
+
+            <!-- Mesure differentielle et sortie analogique -->
+            <div class="monitoring-card">
+                <h3 class="card-title">📐 Mesure différentielle</h3>
+                <div class="sensor-display">
+                    <div class="sensor-value">
+                        <div class="sensor-label">Delta filtré</div>
+                        <div class="sensor-number" id="delta">0</div>
+                        <div class="neutral-range" id="deltaSpan">pleine échelle ±400</div>
+                    </div>
+                    <div class="sensor-value">
+                        <div class="sensor-label">Sortie DAC</div>
+                        <div class="sensor-number" id="dac">128</div>
+                        <div class="neutral-range" id="tensionLevel">tension 0 ‰</div>
+                    </div>
+                </div>
+                <div class="output-status">
+                    <span class="output-label">Mode de sortie</span>
+                    <span class="output-value low" id="modeSortie">—</span>
+                </div>
+            </div>
         </div>
 
         <!-- Calibration -->
@@ -112,6 +133,71 @@
             </div>
         </div>
 
+        <!-- Reglages avances et reseau -->
+        <div class="calibration-section">
+            <h3 class="card-title">⚙️ Sortie proportionnelle</h3>
+            <p class="calibration-note">
+                Type P pour Happy&nbsp;Hare : la position continue sort sur le DAC (GPIO&nbsp;25).
+                Type D conserve les deux sorties tout ou rien. La bascule est immédiate, sans reflashage.
+            </p>
+            <button id="btnModeD" class="btn-calibrate">🔀 Passer en type D (tout ou rien)</button>
+            <button id="btnModeP" class="btn-calibrate">📈 Passer en type P (analogique)</button>
+
+            <p class="calibration-note">
+                Poussez le buffer en butée d'un côté, puis capturez la pleine échelle.
+                Sans elle, la conversion vers le DAC n'a pas de référence.
+            </p>
+            <button id="btnCapSpan" class="btn-calibrate">📏 Capturer la pleine échelle</button>
+
+            <div class="calibration-values">
+                <div class="calibration-value">
+                    <div class="calibration-label">Zone neutre</div>
+                    <input type="number" id="inZone" class="calibration-number" style="width:100%">
+                </div>
+                <div class="calibration-value">
+                    <div class="calibration-label">Hystérésis</div>
+                    <input type="number" id="inHyst" class="calibration-number" style="width:100%">
+                </div>
+                <div class="calibration-value">
+                    <div class="calibration-label">Pleine échelle</div>
+                    <input type="number" id="inSpan" class="calibration-number" style="width:100%">
+                </div>
+                <div class="calibration-value">
+                    <div class="calibration-label">Filtrage (1-256)</div>
+                    <input type="number" id="inAlpha" class="calibration-number" style="width:100%">
+                </div>
+            </div>
+            <button id="btnSaveAdv" class="btn-calibrate">💾 Enregistrer les réglages</button>
+        </div>
+
+        <div class="calibration-section">
+            <h3 class="card-title">📶 Réseau</h3>
+            <div class="output-status">
+                <span class="output-label">État</span>
+                <span class="output-value low" id="wifiPhase">—</span>
+            </div>
+            <div class="output-status">
+                <span class="output-label">Réseau / IP</span>
+                <span class="output-value low" id="wifiInfo">—</span>
+            </div>
+            <p class="calibration-note">
+                Les identifiants sont stockés dans le module, plus dans le firmware.
+                À renseigner depuis le point d'accès de secours si la connexion échoue.
+            </p>
+            <div class="calibration-values">
+                <div class="calibration-value">
+                    <div class="calibration-label">SSID</div>
+                    <input type="text" id="inSsid" class="calibration-number" style="width:100%">
+                </div>
+                <div class="calibration-value">
+                    <div class="calibration-label">Mot de passe</div>
+                    <input type="password" id="inPass" class="calibration-number" style="width:100%">
+                </div>
+            </div>
+            <button id="btnSaveWifi" class="btn-calibrate">💾 Enregistrer et se connecter</button>
+            <button id="btnForgetWifi" class="btn-calibrate">🗑️ Oublier le réseau</button>
+        </div>
+
         <!-- Pied de page -->
         <footer class="footer">
             <div class="footer-content">
@@ -130,6 +216,6 @@
         </footer>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=2"></script>
 </body>
 </html>
