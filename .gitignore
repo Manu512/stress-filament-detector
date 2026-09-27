@@ -26,4 +26,8 @@ src/config_private.h
 Thumbs.db
 
 # Autres
-lib/
+# 'lib/' sert aux bibliotheques tierces, qu'on ne versionne pas. La forme
+# 'lib/*' est necessaire pour pouvoir re-inclure un sous-dossier : git ne
+# descend pas dans un repertoire deja ignore.
+lib/*
+!lib/stress_core/
