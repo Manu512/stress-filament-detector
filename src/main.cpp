@@ -253,6 +253,7 @@ static void notifierClients() {
     doc["wifi_phase"]       = (int)n.phase;
     doc["wifi_ip"]          = n.ip;
     doc["wifi_ssid"]        = n.ssid;
+    doc["wifi_rssi"]        = n.rssi;
 
     String out;
     serializeJson(doc, out);

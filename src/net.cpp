@@ -63,6 +63,7 @@ void basculerEnAp() {
     WiFi.softAP(apSsid.c_str(), apPass.isEmpty() ? nullptr : apPass.c_str());
     etat.ssid = apSsid;
     etat.ip   = WiFi.softAPIP().toString();
+    etat.rssi = 0;
     passerEn(Phase::AccessPoint);
 }
 
@@ -113,7 +114,8 @@ void loop() {
 
     case Phase::Connecting:
         if (WiFi.status() == WL_CONNECTED) {
-            etat.ip = WiFi.localIP().toString();
+            etat.ip   = WiFi.localIP().toString();
+            etat.rssi = WiFi.RSSI();
             echecsSuite = 0;
             passerEn(Phase::Connected);
         } else if (maintenant - phaseDebut >= kConnectTimeoutMs) {
@@ -130,8 +132,13 @@ void loop() {
         if (WiFi.status() != WL_CONNECTED) {
             // Perte de lien : on repart en tentative, sans jamais bloquer la
             // mesure. C'est le scenario d'un redemarrage de box ou du pont.
-            etat.ip = "";
+            etat.ip   = "";
+            etat.rssi = 0;
             passerEn(Phase::Retrying);
+        } else {
+            // Rafraichi en continu : c'est ce qui permet de regler la puissance
+            // d'emission de l'AP en la mesurant au lieu de la deduire.
+            etat.rssi = WiFi.RSSI();
         }
         break;
 

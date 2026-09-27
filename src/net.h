@@ -31,6 +31,10 @@ struct Status {
     uint32_t attempts   = 0;
     String  ip;
     String  ssid;
+    // Signal recu, en dBm. Rafraichi a chaque loop() tant que la connexion
+    // tient. Vaut 0 hors connexion station : en point d'acces la notion n'a
+    // pas de sens, et WiFi.RSSI() y renvoie une valeur arbitraire.
+    int8_t  rssi        = 0;
 };
 
 // Duree d'une tentative avant abandon, et attente entre deux tentatives.
