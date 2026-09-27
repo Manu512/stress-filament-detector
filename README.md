@@ -8,19 +8,26 @@
 
 ## 📖 Description
 
-Système de détection de stress filament en temps réel pour imprimantes 3D utilisant deux capteurs Hall SS49E et un microcontrôleur ESP32. Le système détecte trois états distincts : **compression**, **neutre**, et **tension** grâce à une logique différentielle avancée.
+Capteur de position du buffer filament, entre le MMU et l'extrudeur, pour imprimantes 3D. Deux capteurs Hall SS49E sont lus en **différentiel** par un ESP32. Le module en tire une mesure **proportionnelle** : de la tension (le filament tire) à la compression (le filament pousse), en passant par le neutre.
 
-**🔬 Basé sur :** Ce projet est une revisite et amélioration du [Voron ERCF Filament Stress Sensor](https://www.printables.com/model/803180-voron-ercf-filament-stress-sensor) de **jmillerfo**, adapté pour l'ESP32 avec interface web moderne et intégration Happy Hare optimisée.
+Le module fournit cette mesure à Happy Hare de deux façons, **en même temps** :
 
-**🎯 Intégration MMU :** Conçu pour s'intégrer avec [Happy Hare](https://github.com/moggieuk/Happy-Hare) dans Klipper/Kalico pour la gestion automatique du Multi-Material Unit (MMU). Le détecteur fournit les signaux de stress au firmware Klipper qui gère ensuite la logique de rétraction/avancement du filament.
+| Sortie | Broche | Mode Happy Hare | Usage |
+|---|---|---|---|
+| Analogique (DAC) | GPIO 25 | **type P** (proportionnel) | mode recommandé, par défaut |
+| Tout ou rien | GPIO 26 | type D (tension/compression) | secours |
 
-**🖨️ Testé sur :** Voron 2.4 R2 avec carte BIGTREETECH MMB CAN V1.1
+Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas besoin de reflasher l'ESP32. En type P, Happy Hare règle en continu la vitesse du moteur du MMU (autotune par filtre de Kalman étendu), au lieu de la faire osciller entre deux niveaux.
+
+**🔬 Basé sur :** ce projet reprend et améliore le [Voron ERCF Filament Stress Sensor](https://www.printables.com/model/803180-voron-ercf-filament-stress-sensor) de **jmillerfo**. Il est adapté à l'ESP32, avec une interface web et une intégration Happy Hare.
+
+**🖨️ Testé sur :** Voron 2.4 R2, BIGTREETECH MMB CAN, Happy Hare v3, Kalico.
 
 ## 📸 Galerie
 
 ### Interface Web
 ![Interface Web](docs/interface_web.png)
-*Interface web moderne avec monitoring temps réel et contrôles de calibration*
+*Interface web avec monitoring temps réel et contrôles de calibration*
 
 ### Capteur ESP32
 ![Capteur ESP32](docs/ERFC_capteur_ESP32.PNG)
@@ -32,196 +39,184 @@ Système de détection de stress filament en temps réel pour imprimantes 3D uti
 
 ## ✨ Fonctionnalités
 
-- 🎯 **Détection 3 zones** : Compression, Neutre, Tension
-- 📊 **Monitoring temps réel** : Interface web moderne avec WebSocket
-- 🔧 **Calibration automatique** : Point neutre configurable
-- 📱 **Interface responsive** : Compatible mobile/tablette/desktop
-- 🌐 **Accès réseau** : WiFi avec mDNS (.local)
-- ⚡ **Sorties GPIO** : Contrôle direct des signaux
+- 📏 **Mesure proportionnelle** : sortie analogique pour Happy Hare type P
+- 🎯 **Sortie tout ou rien conservée** : compression, neutre ou tension, avec hystérésis
+- 🧮 **Mesure différentielle** : la différence entre les deux capteurs annule la dérive thermique et les variations d'alimentation
+- 🛡️ **La mesure ne dépend jamais du réseau** : le Wi-Fi ne bloque jamais la boucle de mesure
+- 📶 **Wi-Fi sans recompilation** : identifiants stockés en mémoire NVS, point d'accès de repli pour les saisir
+- 📊 **Interface web temps réel** : WebSocket, calibration, réglages, RSSI Wi-Fi
+- 🔄 **Mise à jour OTA**
+- 🧪 **Logique testée sur PC** : tests unitaires natifs, sans matériel
 
 ## 🛠️ Matériel requis
 
 - **ESP32 Wemos D1 Mini 32**
-- **2x Capteurs Hall SS49E**
-- **Résistances de pull-up** (si nécessaire)
-- **Alimentation 5V**
+- **2x capteurs Hall SS49E**
+- **Alimentation 5V**, fournie par la carte MMU
 
 ## 📐 Schéma de connexion
 
 ```
 ESP32 D1 Mini 32
-├── GPIO 32 ──── Capteur S1 (SS49E)
-├── GPIO 33 ──── Capteur S2 (SS49E)
-├── GPIO 26 ──── Sortie 1 (Output)
-├── GPIO 25 ──── Sortie 2 (Output)
-├── 3.3V   ──── VCC Capteurs
-└── GND    ──── GND Capteurs
+├── GPIO 32 ──── Capteur S1 (SS49E)          entrée ADC1
+├── GPIO 33 ──── Capteur S2 (SS49E)          entrée ADC1
+├── GPIO 25 ──── Sortie ANALOGIQUE (DAC1)    -> Happy Hare type P
+├── GPIO 26 ──── Sortie tout ou rien (DAC2)  -> Happy Hare type D, en secours
+├── 3.3V   ──── VCC capteurs
+└── GND    ──── GND capteurs
 ```
 
-### 🔗 Connexion à la carte mère
-**Pour BIGTREETECH MMB CAN V1.1 :**
+GPIO 25 et 26 sont les deux seules broches DAC de l'ESP32. En mode analogique, GPIO 25 fournit une tension continue et ne sert plus de sortie logique.
+
+### 🔗 Connexion à la carte MMU
+
+**Exemple sur BIGTREETECH MMB CAN :**
 ```
-ESP32 5V                ──► MMB CAN VCC
-ESP32 Sortie 1 (GPIO 26) ──► MMB CAN Pin : PA3 (ou pin libre)
-ESP32 Sortie 2 (GPIO 25) ──► MMB CAN Pin : PA4 (ou pin libre)  
-ESP32 GND                ──► MMB CAN GND
+ESP32 5V                    ──► MMB 5V
+ESP32 GND                   ──► MMB GND
+ESP32 GPIO 25 (analogique)  ──► MMB STP8 (PB12), entrée lue par l'ADC
+ESP32 GPIO 26 (secours)     ──► une entrée libre, uniquement pour le type D
 ```
 
-## 🖨️ Intégration Klipper/Happy Hare
+> ⚠️ **Plage DAC limitée à 160-255.** Le DAC de l'ESP32 sait fournir du courant, mais presque pas en absorber. Sur l'entrée STP8 de la MMB, il ne parvient pas à descendre sous environ 1,9 V : en dessous de la valeur 144, la courbe se tasse puis s'inverse. Le firmware n'utilise donc que la plage 160-255, avec le neutre à 208. Les bornes à déclarer dans Klipper dépendent de la carte et de son entrée : **mesurez-les sur votre machine.**
 
-### Configuration Happy Hare MMU
-Ce détecteur est conçu pour s'intégrer parfaitement avec [Happy Hare](https://github.com/moggieuk/Happy-Hare) dans Klipper/Kalico.
+## 🖨️ Intégration Klipper / Happy Hare
 
-**Configuration dans `mmu_hardware.cfg` :**
+### Mode proportionnel (type P), recommandé
+
+**`mmu_hardware.cfg`**, section `[mmu_sensors]` :
 ```ini
-[mmu_sensors]
-sync_feedback_tension_pin: ^mmu:PB4      # Pin connectée à la Sortie 1 du détecteur
-sync_feedback_compression_pin: ^mmu:PB3  # Pin connectée à la Sortie 2 du détecteur
+sync_feedback_tension_pin:
+sync_feedback_compression_pin:
+sync_feedback_analog_pin: mmu:PB12
+# Tensions lues par la MMB, normalisées entre 0 et 1, relevées sur la machine de test :
+sync_feedback_analog_max_tension: 0.623
+sync_feedback_analog_neutral_point: 0.795
+sync_feedback_analog_max_compression: 0.969
 ```
 
-**Configuration dans `mmu_parameters.cfg` :**
+**`mmu_parameters.cfg`**, section `[mmu]` :
 ```ini
-[mmu]
 sync_feedback_enabled: 1
-sync_feedback_buffer_range: 0.5
-sync_feedback_buffer_maxrange: 7
-sync_multiplier_high: 1.05
-sync_multiplier_low: 0.95
-
-autotune_rotation_distance: 1
+sync_feedback_buffer_range: 12      # course utile du buffer, en mm, à mesurer
+sync_feedback_buffer_maxrange: 14   # course maximale, en mm
 ```
 
+Pour relever les bornes, placez le bras du buffer en tension maximale, au neutre, puis en compression maximale. Pour chaque position, notez la valeur lue par Klipper sur `mmu:PB12`. Ne reprenez pas les valeurs ci-dessus telles quelles.
 
-**Macros Klipper personnalisées :**
-```gcode
-[gcode_macro STRESS_SENSOR_STATUS]
-description: Affiche le statut du détecteur via l'interface web
-gcode:
-    # Vous pouvez interroger l'ESP32 via HTTP pour obtenir le statut
-    {action_respond_info("Statut détecteur: http://voron-hall-controller.local")}
+### Mode tout ou rien (type D), en secours
+
+Désactivez la sortie analogique depuis l'interface web (commande `set_analog_output`), puis :
+```ini
+sync_feedback_analog_pin:
+sync_feedback_tension_pin: ^mmu:<entrée reliée à GPIO 25>
+sync_feedback_compression_pin: ^mmu:<entrée reliée à GPIO 26>
 ```
-
-### Avantages de cette intégration
-- ✅ **Détection précoce** : Stress détecté avant bourrage complet
-- ✅ **Logique différentielle** : Plus fiable que les capteurs simples
-- ✅ **Monitoring visuel** : Interface web pour diagnostic
-- ✅ **Configuration flexible** : Calibration via interface web
-- ✅ **Intégration native** : Signaux GPIO standard pour Klipper
 
 ## 🚀 Installation
 
-### 1. Cloner le repository
+### 1. Cloner le dépôt
 ```bash
 git clone https://github.com/Manu512/stress-filament-detector.git
 cd stress-filament-detector
 ```
 
-### 2. Configuration PlatformIO
+### 2. Compiler et téléverser
 ```bash
-# Installer PlatformIO si nécessaire
 pip install platformio
 
-# Compiler et uploader le firmware
-pio run --target upload
+pio run -e wemos_d1_mini32 -t upload      # firmware, par USB
+pio run -e wemos_d1_mini32 -t uploadfs    # interface web (LittleFS)
 
-# Uploader l'interface web
-pio run --target uploadfs
+pio run -e wemos_d1_mini32_ota -t upload  # ensuite, par le réseau (OTA)
 ```
+Avant d'utiliser l'OTA, adaptez `upload_port` dans `platformio.ini` au nom ou à l'IP de votre module.
 
-### 3. Configuration WiFi
-Créer le fichier `src/config_private.h` avec vos credentials :
-```cpp
-// config_private.h - Configuration WiFi PRIVÉE (NE PAS COMMITTER!)
-#ifndef CONFIG_PRIVATE_H
-#define CONFIG_PRIVATE_H
+### 3. Configurer le Wi-Fi
+Il n'y a plus d'identifiants à compiler, ni de fichier `config_private.h`.
 
-// Configuration WiFi
-const char* ssid = "VotreReseauWiFi";
-const char* password = "VotreMotDePasse";
+1. Au premier démarrage, sans identifiants enregistrés, le module ouvre un **point d'accès** `stress-filament-XXXXXX`.
+2. Connectez-vous-y, ouvrez l'interface web à l'adresse IP du point d'accès, puis saisissez votre SSID et votre mot de passe.
+3. Les identifiants sont enregistrés en NVS, et le module rejoint votre réseau sous le nom d'hôte `stress-filament`.
 
-// Configuration OTA
-const char* ota_password = "update123";
-
-#endif
-```
-
-**⚠️ Important :** Ce fichier est exclu du git pour protéger vos credentials.
+Après 3 échecs de connexion consécutifs, le module repasse en point d'accès. Pendant tout ce temps, **la mesure et les sorties continuent de fonctionner.**
 
 ## 🎮 Utilisation
 
-### Interface Web
-1. Connecter l'ESP32 au réseau WiFi
-2. Accéder à `http://voron-hall-controller.local`
-3. Monitoring en temps réel des capteurs
-4. Calibration du point neutre si nécessaire
+### Interface web
+Accessible à l'adresse IP du module, ou par son nom d'hôte si votre réseau le résout : par exemple `http://stress-filament.lan`. Elle affiche en temps réel les deux capteurs, l'écart entre eux, la valeur DAC, l'état, le niveau de tension et le RSSI Wi-Fi.
 
-### Logique de détection
-- **🔴 COMPRESSION** : S1 > seuil ET S2 < seuil
-- **🟡 NEUTRE** : S1 et S2 dans zone ±8 points
-- **🔵 TENSION** : S1 < seuil ET S2 > seuil
+### Calibration
+Les valeurs sont **en millivolts**, lues avec `analogReadMilliVolts()`. Tant qu'aucune calibration valide n'est enregistrée, la mesure n'a pas de référence.
 
-## 📊 Paramètres
+| Commande WebSocket | Effet |
+|---|---|
+| `capture_neutral` | prend la position actuelle comme neutre |
+| `capture_span` | prend la position actuelle comme pleine échelle |
+| `set_neutral` | impose le neutre (`n1`, `n2`, et `span` en option) |
+| `save_simple_calibration` | règle la bande morte, l'hystérésis, l'échelle et le filtrage |
+| `reset_calibration` | revient aux valeurs par défaut |
+| `set_analog_output` | active ou désactive la sortie analogique |
+| `set_wifi` / `forget_wifi` | enregistre ou efface les identifiants Wi-Fi |
 
-| Paramètre | Valeur par défaut | Description |
-|-----------|-------------------|-------------|
-| Fréquence d'échantillonnage | 20 Hz | Lecture des capteurs |
-| Zone neutre | ±8 points | Seuil de tolérance |
-| Point neutre S1 | 2000 | Valeur de référence |
-| Point neutre S2 | 1993 | Valeur de référence |
+### Logique de mesure
+- `delta = (S1 - neutre1) - (S2 - neutre2)`, filtré par une moyenne exponentielle.
+- `delta > 0` : **compression** ; `delta < 0` : **tension**.
+- La sortie analogique est proportionnelle à `delta` sur la plage DAC 160-255.
+- La sortie tout ou rien applique une bande morte et une hystérésis.
+
+## 📊 Paramètres par défaut
+
+| Paramètre | Valeur | Description |
+|---|---|---|
+| Échantillonnage | 20 Hz | lecture des capteurs |
+| Neutre S1 / S2 | 1751 / 1639 mV | ordre de grandeur, à calibrer |
+| Pleine échelle (`span`) | 150 | écart correspondant à la pleine échelle |
+| Bande morte | ±16 | demi-largeur de la zone neutre |
+| Hystérésis | 8 | marge pour quitter un état |
+| Filtrage (`alpha`) | 32/256 | moyenne exponentielle |
+| Plage DAC | 160-255, neutre 208 | voir l'avertissement ci-dessus |
 
 ## 🔧 Développement
 
 ### Structure du projet
 ```
 ├── src/
-│   └── main.cpp           # Firmware ESP32
-├── data/
-│   ├── index.html         # Interface web
-│   ├── style.css          # Styles modernes
-│   └── script.js          # JavaScript WebSocket
-├── platformio.ini         # Configuration PlatformIO
-└── README.md             # Documentation
+│   ├── main.cpp            # lecture des capteurs, sorties, serveur web
+│   ├── net.h / net.cpp     # réseau non bloquant (machine à états, NVS, point d'accès)
+├── lib/stress_core/        # logique de mesure pure, sans Arduino
+├── test/test_stress_core/  # tests unitaires (Unity)
+├── data/                   # interface web (index.html, style.css, script.js)
+├── platformio.ini          # environnements USB, OTA et tests natifs
+└── CHANGEMENTS.md          # détail de la refonte (réseau fiable, mode proportionnel)
+```
+
+### Tests
+Tout ce qui prend une décision se trouve dans `lib/stress_core` et se teste sur PC, sans matériel :
+```bash
+pio test -e native
 ```
 
 ### Dépendances
-- `AsyncTCP` - Communication WebSocket
-- `ESPAsyncWebServer` - Serveur web
-- `ArduinoJson` - Parsing JSON
-- `ESPmDNS` - Résolution .local
-
-## 🎨 Interface
-
-L'interface web moderne propose :
-- Dashboard temps réel avec indicateurs visuels
-- Graphiques des valeurs des capteurs
-- Système de calibration intuitif
-- Design responsive avec animations fluides
-
-## 📝 Configuration avancée
-
-### Personnalisation des seuils
-```cpp
-// Dans main.cpp
-int neutralZone = 8;           // Zone neutre ±8 points
-int sampleCount = 10;          // Moyennage sur 10 échantillons
-unsigned long debugInterval = 2000; // Debug toutes les 2s
-```
+- `ESP32Async/AsyncTCP`
+- `ESP32Async/ESPAsyncWebServer`
+- `bblanchon/ArduinoJson`
 
 ## 🤝 Contribution
 
-Les contributions sont les bienvenues ! 
+Les contributions sont les bienvenues !
 
-1. Fork le projet
-2. Créer une branche feature (`git checkout -b feature/AmazingFeature`)
-3. Commit les changements (`git commit -m 'Add AmazingFeature'`)
-4. Push vers la branche (`git push origin feature/AmazingFeature`)
-5. Ouvrir une Pull Request
+1. Forkez le projet
+2. Créez une branche (`git checkout -b feature/AmazingFeature`)
+3. Commitez vos changements (`git commit -m 'Add AmazingFeature'`)
+4. Poussez la branche (`git push origin feature/AmazingFeature`)
+5. Ouvrez une Pull Request
 
-## 📄 License
+## 📄 Licence
 
-Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de détails.
+Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE).
 
-## �️ Setup de développement
+## 🛠️ Setup de développement
 
 **Configuration de test :**
 - **Imprimante :** Voron 2.4 R2
@@ -251,18 +246,18 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de 
 - Interface web accessible depuis écran Waveshare 4.3" (mod Peek-a-boo)
 - Stockage 1TB parfait pour logs longue durée et timelapses
 
-## �👨‍💻 Auteur
+## 👨‍💻 Auteur
 
 **Manu512**
-- GitHub: [@Manu512](https://github.com/Manu512)
-- Projet: Détecteur de Stress Filament
-- Date: Octobre 2025
-- Setup: Voron 2.4 R2 + RPi4B + Waveshare 4.3" + Octopus Pro + U2C CAN + MMB + SB2209 + TMC5160(48V)
+- GitHub : [@Manu512](https://github.com/Manu512)
+- Projet : Détecteur de Stress Filament
+- Date : octobre 2025, refonte septembre 2026 (mode proportionnel, réseau non bloquant)
 
 ## 🔗 Liens utiles
 
 - [Happy Hare MMU](https://github.com/moggieuk/Happy-Hare) - Multi-Material Unit pour Klipper
 - [Voron ERCF Filament Stress Sensor](https://www.printables.com/model/803180-voron-ercf-filament-stress-sensor) - Projet original par jmillerfo
+- [Kalico](https://github.com/KalicoCrew/kalico) - Fork de Klipper
 - [Documentation Klipper](https://www.klipper3d.org/) - Firmware 3D printer
 - [Raspberry Pi 4B](https://www.raspberrypi.org/products/raspberry-pi-4-model-b/) - Contrôleur principal
 - [Waveshare 4.3" Display](https://www.waveshare.com/4.3inch-dsi-lcd.htm) - Écran tactile DSI
