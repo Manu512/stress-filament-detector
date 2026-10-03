@@ -273,6 +273,46 @@ void test_calibration_refuse_les_valeurs_incoherentes() {
 }
 
 // --------------------------------------------------------------------------
+// Validation avant application
+// --------------------------------------------------------------------------
+
+// Une commande de calibration refusee ne doit rien changer a la calibration en
+// service. Avant ce garde-fou, les valeurs refusees restaient actives en
+// memoire vive jusqu'au redemarrage.
+void test_assign_garde_la_cible_si_le_candidat_est_invalide() {
+    Calibration cible = cal();
+    Calibration candidat = cal();
+    candidat.span = 0;
+    candidat.neutral1 = 1234;
+    TEST_ASSERT_FALSE(assignIfValid(cible, candidat));
+    TEST_ASSERT_EQUAL_INT32(cal().span, cible.span);
+    TEST_ASSERT_EQUAL_INT32(cal().neutral1, cible.neutral1);
+    TEST_ASSERT_TRUE(cible.isValid());
+}
+
+void test_assign_remplace_la_cible_si_le_candidat_est_valide() {
+    Calibration cible = cal();
+    Calibration candidat = cal();
+    candidat.neutral1 = 1708;
+    candidat.neutral2 = 1689;
+    candidat.span     = 125;
+    TEST_ASSERT_TRUE(assignIfValid(cible, candidat));
+    TEST_ASSERT_EQUAL_INT32(1708, cible.neutral1);
+    TEST_ASSERT_EQUAL_INT32(1689, cible.neutral2);
+    TEST_ASSERT_EQUAL_INT32(125, cible.span);
+}
+
+void test_alpha_borne_entre_1_et_256() {
+    TEST_ASSERT_FALSE(isValidAlpha(0));    // figerait le filtre
+    TEST_ASSERT_FALSE(isValidAlpha(-5));
+    TEST_ASSERT_TRUE(isValidAlpha(1));
+    TEST_ASSERT_TRUE(isValidAlpha(32));
+    TEST_ASSERT_TRUE(isValidAlpha(256));
+    TEST_ASSERT_FALSE(isValidAlpha(257));
+    TEST_ASSERT_FALSE(isValidAlpha(70000)); // deborderait le uint16_t du firmware
+}
+
+// --------------------------------------------------------------------------
 
 int main(int, char**) {
     UNITY_BEGIN();
@@ -309,6 +349,10 @@ int main(int, char**) {
     RUN_TEST(test_niveau_tension_sature);
 
     RUN_TEST(test_calibration_refuse_les_valeurs_incoherentes);
+
+    RUN_TEST(test_assign_garde_la_cible_si_le_candidat_est_invalide);
+    RUN_TEST(test_assign_remplace_la_cible_si_le_candidat_est_valide);
+    RUN_TEST(test_alpha_borne_entre_1_et_256);
 
     return UNITY_END();
 }

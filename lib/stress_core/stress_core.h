@@ -48,6 +48,15 @@ struct Calibration {
     bool isValid() const;
 };
 
+// Remplace `target` par `candidate` seulement si ce dernier est coherent, et
+// dit s'il l'a fait. Sert aux commandes de calibration : des valeurs refusees
+// ne doivent pas ecraser la calibration en service, meme en memoire vive.
+bool assignIfValid(Calibration& target, const Calibration& candidate);
+
+// Constante de filtrage acceptable : de 1 (filtrage tres fort) a 256 (aucun
+// filtrage). 0 figerait le filtre, donc la sortie.
+bool isValidAlpha(int32_t alpha_q8);
+
 // Sortie analogique : rapport cyclique d'un PWM, lisse par un filtre RC
 // (1 kOhm + 10 uF) soude cote module, entre GPIO 25 et le cable vers la MMB.
 //

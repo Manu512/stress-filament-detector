@@ -31,6 +31,16 @@ bool Calibration::isValid() const {
     return true;
 }
 
+bool assignIfValid(Calibration& target, const Calibration& candidate) {
+    if (!candidate.isValid()) return false;
+    target = candidate;
+    return true;
+}
+
+bool isValidAlpha(int32_t alpha_q8) {
+    return alpha_q8 >= 1 && alpha_q8 <= 256;
+}
+
 int32_t computeDelta(int32_t raw1, int32_t raw2, const Calibration& cal) {
     return (raw1 - cal.neutral1) - (raw2 - cal.neutral2);
 }

@@ -171,7 +171,7 @@ Une fois en point d'accès, le module y reste jusqu'à la saisie de nouveaux ide
 ### Interface web
 Accessible à l'adresse IP du module, ou par son nom d'hôte si votre réseau le résout : par exemple `http://stress-filament.lan`. Elle affiche en temps réel les deux capteurs et leur zone, l'écart filtré entre eux, le rapport cyclique de la sortie, l'état, le niveau de tension, le mode de sortie, le réseau et l'adresse IP.
 
-Le RSSI Wi-Fi n'est pas affiché : il n'existe que dans le statut WebSocket (`wifi_rssi`). En mode analogique, la ligne « Sortie 2 (GPIO 25) » reste à LOW : la valeur de la sortie se lit dans « Sortie PWM ».
+Le RSSI Wi-Fi n'est pas affiché : il n'existe que dans le statut WebSocket (`wifi_rssi`). En mode analogique, la ligne « Sortie 2 (GPIO 25) » affiche PWM : la valeur de la sortie se lit dans « Sortie PWM ».
 
 ### Calibration
 Les valeurs sont **en millivolts**, lues avec `analogReadMilliVolts()`. Tant qu'aucune calibration valide n'est enregistrée, la mesure n'a pas de référence.
@@ -180,8 +180,8 @@ Les valeurs sont **en millivolts**, lues avec `analogReadMilliVolts()`. Tant qu'
 |---|---|---|
 | `capture_neutral` | | prend la position actuelle comme neutre |
 | `capture_span` | | prend l'amplitude actuelle du delta filtré comme pleine échelle ; sans effet si elle ne dépasse pas la bande morte |
-| `set_neutral` | `n1`, `n2`, `span` en option | impose le neutre, et la pleine échelle si elle est fournie ; non enregistré si les valeurs sont incohérentes |
-| `save_simple_calibration` | `deadband_points`, `hysteresis`, `span`, `alpha` | règle la bande morte, l'hystérésis, la pleine échelle et le filtrage ; non enregistré si les valeurs sont incohérentes |
+| `set_neutral` | `n1`, `n2`, `span` en option | impose le neutre, et la pleine échelle si elle est fournie ; refusé en bloc si les valeurs sont incohérentes, la calibration en service reste alors inchangée |
+| `save_simple_calibration` | `deadband_points`, `hysteresis`, `span`, `alpha` (1 à 256) | règle la bande morte, l'hystérésis, la pleine échelle et le filtrage ; refusé en bloc de la même façon |
 | `reset_calibration` | | remet le neutre, la pleine échelle, la bande morte et l'hystérésis par défaut, et invalide la calibration ; le filtrage et le mode de sortie sont conservés |
 | `set_analog_output` | `enabled` | active ou désactive la sortie analogique |
 | `set_wifi` | `ssid`, `password` | enregistre les identifiants et lance la connexion |
@@ -281,15 +281,13 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE).
 - **Capteurs :** 2x SS49E Hall sensors positionnés sur le chemin filament
 
 **Retour d'expérience :**
-- Détection ultra-précise des micro-contraintes
-- Intégration transparente avec Happy Hare
-- Monitoring temps réel très utile pour le tuning
-- Calibration simple et efficace
-- Compatible avec architecture CAN Bus complète (U2C + MMB CAN + SB2209)
-- Fonctionne parfaitement avec BambuLab Hotend haute débit
-- Testé avec TMC5160 48V sur axes A/B pour performances maximales
-- Stabilité excellente même à haute vitesse d'impression
-- Interface web accessible depuis écran Waveshare 4.3" (mod Peek-a-boo)
+- Le mode proportionnel (type P) tourne sur cette machine avec Happy Hare v3 depuis le 24 septembre 2026. Plusieurs impressions d'une heure et demie à cinq heures sont allées à leur terme.
+- Le 3 octobre 2026, une impression s'est arrêtée trois fois sur une détection de bouchon de FlowGuard, puis le filament a été retrouvé cassé dans le bowden. La cause n'est pas établie : voir `CHANGEMENTS.md`, section 9.
+- L'aimant du buffer doit être bloqué mécaniquement sur son support, et la calibration refaite par les deux butées chaque fois qu'il bouge.
+- La sortie PWM filtrée est en service depuis le 3 octobre 2026 : son comportement dans la durée reste à observer.
+- Le reset matériel de l'ESP32 depuis Klipper (fil vers la broche RST) a été essayé et ne fonctionne pas en l'état : voir `CHANGEMENTS.md`, section 10.
+- L'interface web sert surtout au réglage : lecture des deux capteurs en direct, et calibration.
+- Jamais mesuré : le comportement de la ligne analogique moteurs en marche, à l'oscilloscope.
 
 ## 👨‍💻 Auteur
 

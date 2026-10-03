@@ -216,7 +216,7 @@ calibration. `src/main.cpp` ne fait plus que lire, écrire et servir le web.
 pio test -e native
 ```
 
-27 cas au 2026-10-03, contre 21 annoncés ici à l'origine : rejet du mode commun,
+30 cas au 2026-10-03, contre 21 annoncés ici à l'origine : rejet du mode commun,
 convergence du filtre, saturation et monotonie de la sortie PWM, hystérésis, refus d'une
 calibration incohérente.
 
@@ -467,6 +467,27 @@ ci-dessus.
 L'oscillation de ±0,6 ne vient pas de la calibration, qui était centrée. Son
 origine n'a pas été cherchée.
 
+### Défauts corrigés le 2026-10-03
+
+Relevés en confrontant la documentation au code, puis corrigés.
+
+- **Une calibration refusée restait active.** `set_neutral` et
+  `save_simple_calibration` écrivaient les valeurs reçues dans la calibration en
+  service avant de les valider. Refusées, elles n'étaient pas enregistrées en NVS,
+  mais restaient appliquées jusqu'au redémarrage. Les deux commandes valident
+  désormais une copie (`assignIfValid`), et `alpha` est borné de 1 à 256. Trois
+  tests natifs couvrent ce garde-fou.
+- **L'interface affichait des valeurs fausses.** La légende « Zone Tampon ±8 »
+  était figée alors que la bande morte vaut 16 par défaut : elle suit maintenant
+  la valeur du module. Les valeurs affichées avant la première trame (2000 / 1993,
+  ±400) dataient d'avant le passage en millivolts : elles sont remplacées par un
+  tiret. La ligne « Sortie 2 (GPIO 25) » indiquait LOW en mode analogique : elle
+  indique maintenant la nature de la sortie.
+- **La consigne de calibration de l'interface contredisait ce journal.** Elle
+  demandait de placer le filament « en position neutre (pas de contrainte) », alors
+  que la position de repos est la butée de compression. Elle renvoie maintenant à
+  la calibration par les deux butées.
+
 ## 10. Sortie PWM filtrée, 2026-10-03
 
 La section 7 écartait le PWM : « aucun problème mesuré ne le justifie ». Il a été
@@ -491,7 +512,7 @@ la valeur qui était disponible. Constante de temps calculée, résistance seule
 
 `deltaToDac` devient `deltaToDuty`. LEDC canal 0, 20 kHz, 11 bits, rapport
 cyclique borné de 5 % à 95 % (102..1945, neutre 1024) : 1844 niveaux contre 96.
-Le statut WebSocket porte `pwm` et `pwm_full` à la place de `dac`. 27 tests natifs.
+Le statut WebSocket porte `pwm` et `pwm_full` à la place de `dac`. 30 tests natifs.
 
 ### Courbe de transfert mesurée
 
