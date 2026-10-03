@@ -73,7 +73,7 @@ static uint16_t dernierDuty = stress::kPwmNeutral;
 static bool     sortieAnalogique = true;
 
 // Constante de filtrage, en 1/256. 32 donne une reponse douce sans latence
-// perceptible a 20 Hz d'echantillonnage.
+// perceptible a 25 Hz de mesure (200 Hz de lecture brute, moyennee par 8).
 static uint16_t alphaQ8 = 32;
 
 static Preferences prefs;

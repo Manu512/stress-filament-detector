@@ -15,7 +15,7 @@ int32_t clamp(int32_t v, int32_t lo, int32_t hi) {
 bool Calibration::isValid() const {
     // span nul ou negatif : la conversion analogique diviserait par zero ou
     // s'inverserait. neutral_zone negative : la machine a etats n'aurait plus
-    // de zone neutre. hysteresis >= neutral_zone : le seuil de sortie
+    // de zone neutre. hysteresis > neutral_zone : le seuil de sortie
     // deviendrait negatif, donc on ne quitterait jamais un etat.
     if (span <= 0) return false;
     // Borne haute : le delta est une difference de deux lectures en mV sur une
