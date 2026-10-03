@@ -99,8 +99,8 @@
                         <div class="neutral-range" id="deltaSpan">pleine échelle ±400</div>
                     </div>
                     <div class="sensor-value">
-                        <div class="sensor-label">Sortie DAC</div>
-                        <div class="sensor-number" id="dac">128</div>
+                        <div class="sensor-label">Sortie PWM</div>
+                        <div class="sensor-number" id="pwm">50 %</div>
                         <div class="neutral-range" id="tensionLevel">tension 0 ‰</div>
                     </div>
                 </div>
@@ -137,7 +137,7 @@
         <div class="calibration-section">
             <h3 class="card-title">⚙️ Sortie proportionnelle</h3>
             <p class="calibration-note">
-                Type P pour Happy&nbsp;Hare : la position continue sort sur le DAC (GPIO&nbsp;25).
+                Type P pour Happy&nbsp;Hare : la position continue sort en PWM filtré sur GPIO&nbsp;25.
                 Type D conserve les deux sorties tout ou rien. La bascule est immédiate, sans reflashage.
             </p>
             <button id="btnModeD" class="btn-calibrate">🔀 Passer en type D (tout ou rien)</button>
@@ -145,7 +145,7 @@
 
             <p class="calibration-note">
                 Poussez le buffer en butée d'un côté, puis capturez la pleine échelle.
-                Sans elle, la conversion vers le DAC n'a pas de référence.
+                Sans elle, la conversion vers la sortie analogique n'a pas de référence.
             </p>
             <button id="btnCapSpan" class="btn-calibrate">📏 Capturer la pleine échelle</button>
 

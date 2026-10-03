@@ -79,86 +79,112 @@ void test_ema_supporte_les_valeurs_negatives() {
 }
 
 // --------------------------------------------------------------------------
-// deltaToDac
+// deltaToDuty
 // --------------------------------------------------------------------------
 
-void test_dac_neutre_au_centre() {
-    TEST_ASSERT_EQUAL_UINT8(kDacNeutral, deltaToDac(0, cal()));
+void test_duty_neutre_au_centre() {
+    TEST_ASSERT_EQUAL_UINT16(kPwmNeutral, deltaToDuty(0, cal()));
 }
 
-void test_dac_sature_aux_deux_bouts() {
+void test_duty_sature_aux_deux_bouts() {
     const Calibration c = cal();
-    TEST_ASSERT_EQUAL_UINT8(kDacMax, deltaToDac(c.span, c));
-    TEST_ASSERT_EQUAL_UINT8(kDacMin, deltaToDac(-c.span, c));
+    TEST_ASSERT_EQUAL_UINT16(kPwmMax, deltaToDuty(c.span, c));
+    TEST_ASSERT_EQUAL_UINT16(kPwmMin, deltaToDuty(-c.span, c));
 }
 
-void test_dac_sature_au_dela_de_span() {
+void test_duty_sature_au_dela_de_span() {
     const Calibration c = cal();
     // Au-dela de la pleine echelle, on sature au lieu de reboucler : un
     // debordement ferait passer la compression pour de la tension.
-    TEST_ASSERT_EQUAL_UINT8(kDacMax, deltaToDac(c.span * 10, c));
-    TEST_ASSERT_EQUAL_UINT8(kDacMin, deltaToDac(-c.span * 10, c));
+    TEST_ASSERT_EQUAL_UINT16(kPwmMax, deltaToDuty(c.span * 10, c));
+    TEST_ASSERT_EQUAL_UINT16(kPwmMin, deltaToDuty(-c.span * 10, c));
 }
 
-void test_dac_est_monotone() {
+void test_duty_est_monotone() {
     const Calibration c = cal();
-    uint8_t precedent = deltaToDac(-c.span, c);
+    uint16_t precedent = deltaToDuty(-c.span, c);
     for (int32_t d = -c.span + 1; d <= c.span; ++d) {
-        const uint8_t v = deltaToDac(d, c);
-        TEST_ASSERT_GREATER_OR_EQUAL_UINT8(precedent, v);
+        const uint16_t v = deltaToDuty(d, c);
+        TEST_ASSERT_GREATER_OR_EQUAL_UINT16(precedent, v);
         precedent = v;
     }
 }
 
-void test_dac_replie_sur_neutre_si_calibration_invalide() {
+// Ce que le PWM apporte par rapport au DAC, qui n'offrait que 96 pas : avec la
+// pleine echelle relevee sur la machine (134), chaque unite de delta doit
+// produire un rapport cyclique distinct. Sinon la resolution du capteur serait
+// encore limitee par la sortie et non par la mesure.
+void test_duty_distingue_chaque_unite_de_delta() {
+    Calibration c = cal();
+    c.span = 134;
+    uint16_t precedent = deltaToDuty(-c.span, c);
+    for (int32_t d = -c.span + 1; d <= c.span; ++d) {
+        const uint16_t v = deltaToDuty(d, c);
+        TEST_ASSERT_GREATER_THAN_UINT16(precedent, v);
+        precedent = v;
+    }
+}
+
+void test_duty_replie_sur_neutre_si_calibration_invalide() {
     Calibration c = cal();
     c.span = 0; // division par zero si on ne s'en protege pas
     TEST_ASSERT_FALSE(c.isValid());
-    TEST_ASSERT_EQUAL_UINT8(kDacNeutral, deltaToDac(1234, c));
+    TEST_ASSERT_EQUAL_UINT16(kPwmNeutral, deltaToDuty(1234, c));
 }
 
-// La contrainte qui justifie toute la plage restreinte : sous kDacMin, l'entree
-// de la MMB ne lit plus une image de la position du bras mais un plancher
-// impose par son tirage, et la courbe s'y inverse. Aucune entree, meme
-// aberrante, ne doit pouvoir y descendre.
-void test_dac_ne_descend_jamais_sous_le_plancher() {
+// Aucune entree, meme aberrante, ne doit faire sortir le rapport cyclique de la
+// plage utile : a 0 % ou 100 % la broche ne commute plus, et la MMB ne
+// distinguerait plus une butee d'une sortie figee.
+void test_duty_ne_sort_jamais_de_la_plage() {
     const Calibration c = cal();
     const int32_t extremes[] = {0, 1, -1, c.span, -c.span, c.span * 100,
                                 -c.span * 100, 2147483647, -2147483647};
     for (int32_t d : extremes) {
-        TEST_ASSERT_GREATER_OR_EQUAL_UINT8(kDacMin, deltaToDac(d, c));
-        TEST_ASSERT_LESS_OR_EQUAL_UINT8(kDacMax, deltaToDac(d, c));
+        TEST_ASSERT_GREATER_OR_EQUAL_UINT16(kPwmMin, deltaToDuty(d, c));
+        TEST_ASSERT_LESS_OR_EQUAL_UINT16(kPwmMax, deltaToDuty(d, c));
     }
     Calibration invalide = cal();
     invalide.span = 0;
-    TEST_ASSERT_GREATER_OR_EQUAL_UINT8(kDacMin, deltaToDac(0, invalide));
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT16(kPwmMin, deltaToDuty(0, invalide));
 }
 
-// Le plancher doit rester sous le coude releve a 144, avec de la marge, et le
-// plafond doit rester dans le 8 bits. Ce test fige la decision plutot que de la
-// laisser a un futur ajustement distrait.
-void test_plage_dac_dans_la_zone_lineaire_mesuree() {
-    TEST_ASSERT_GREATER_THAN_UINT8(144, kDacMin);   // au-dessus du coude
-    TEST_ASSERT_LESS_OR_EQUAL_UINT8(255, kDacMax);
-    TEST_ASSERT_GREATER_THAN_UINT8(kDacMin, kDacMax);
+// Le span maximal accepte entre dans un produit : il ne doit pas deborder, et
+// les bornes doivent rester exactes meme a cette extremite.
+void test_duty_sans_debordement_au_span_maximal() {
+    Calibration c = cal();
+    c.span = 4095;
+    TEST_ASSERT_TRUE(c.isValid());
+    TEST_ASSERT_EQUAL_UINT16(kPwmMax, deltaToDuty(2147483647, c));
+    TEST_ASSERT_EQUAL_UINT16(kPwmMin, deltaToDuty(-2147483647, c));
+}
+
+// Fige les decisions sur la plage plutot que de les laisser a un futur
+// ajustement distrait : jamais 0 % ni 100 %, neutre entre les deux, et une
+// resolution que le peripherique sait reellement tenir a cette frequence.
+void test_plage_pwm_coherente() {
+    TEST_ASSERT_GREATER_THAN_UINT16(0, kPwmMin);          // la broche commute
+    TEST_ASSERT_LESS_THAN_UINT16(kPwmFull, kPwmMax);      // idem en haut
+    TEST_ASSERT_GREATER_THAN_UINT16(kPwmMin, kPwmMax);
     // Le neutre doit tomber entre les deux, sinon la moitie de la course
     // saturerait.
-    TEST_ASSERT_GREATER_THAN_UINT8(kDacMin, kDacNeutral);
-    TEST_ASSERT_LESS_THAN_UINT8(kDacMax, kDacNeutral);
+    TEST_ASSERT_GREATER_THAN_UINT16(kPwmMin, kPwmNeutral);
+    TEST_ASSERT_LESS_THAN_UINT16(kPwmMax, kPwmNeutral);
+    // Horloge LEDC a 80 MHz : le nombre de pas par periode borne la resolution.
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(80000000u / kPwmFreqHz, 1u << kPwmBits);
 }
 
 // Les deux extremites doivent tomber EXACTEMENT sur les bornes, quel que soit
 // le span : c'est ce que l'ancienne forme signee ne garantissait pas lorsque la
-// plage compte un nombre impair de pas, et 160..255 en compte 95.
-void test_dac_atteint_exactement_les_bornes_quel_que_soit_le_span() {
+// plage compte un nombre impair de pas, et 102..1945 en compte 1843.
+void test_duty_atteint_exactement_les_bornes_quel_que_soit_le_span() {
     const int32_t spans[] = {1, 2, 3, 7, 16, 95, 134, 150, 1000, 4095};
     for (int32_t span : spans) {
         Calibration c = cal();
         c.span = span;
         TEST_ASSERT_TRUE(c.isValid());
-        TEST_ASSERT_EQUAL_UINT8(kDacMin, deltaToDac(-span, c));
-        TEST_ASSERT_EQUAL_UINT8(kDacMax, deltaToDac(span, c));
-        TEST_ASSERT_EQUAL_UINT8(kDacNeutral, deltaToDac(0, c));
+        TEST_ASSERT_EQUAL_UINT16(kPwmMin, deltaToDuty(-span, c));
+        TEST_ASSERT_EQUAL_UINT16(kPwmMax, deltaToDuty(span, c));
+        TEST_ASSERT_EQUAL_UINT16(kPwmNeutral, deltaToDuty(0, c));
     }
 }
 
@@ -261,14 +287,16 @@ int main(int, char**) {
     RUN_TEST(test_ema_converge_sans_depasser);
     RUN_TEST(test_ema_supporte_les_valeurs_negatives);
 
-    RUN_TEST(test_dac_neutre_au_centre);
-    RUN_TEST(test_dac_sature_aux_deux_bouts);
-    RUN_TEST(test_dac_sature_au_dela_de_span);
-    RUN_TEST(test_dac_est_monotone);
-    RUN_TEST(test_dac_replie_sur_neutre_si_calibration_invalide);
-    RUN_TEST(test_dac_ne_descend_jamais_sous_le_plancher);
-    RUN_TEST(test_plage_dac_dans_la_zone_lineaire_mesuree);
-    RUN_TEST(test_dac_atteint_exactement_les_bornes_quel_que_soit_le_span);
+    RUN_TEST(test_duty_neutre_au_centre);
+    RUN_TEST(test_duty_sature_aux_deux_bouts);
+    RUN_TEST(test_duty_sature_au_dela_de_span);
+    RUN_TEST(test_duty_est_monotone);
+    RUN_TEST(test_duty_distingue_chaque_unite_de_delta);
+    RUN_TEST(test_duty_replie_sur_neutre_si_calibration_invalide);
+    RUN_TEST(test_duty_ne_sort_jamais_de_la_plage);
+    RUN_TEST(test_duty_sans_debordement_au_span_maximal);
+    RUN_TEST(test_plage_pwm_coherente);
+    RUN_TEST(test_duty_atteint_exactement_les_bornes_quel_que_soit_le_span);
     RUN_TEST(test_span_aberrant_refuse);
 
     RUN_TEST(test_etat_neutre_dans_la_zone);

@@ -307,9 +307,9 @@ function majMesure(data) {
     const e = document.getElementById('deltaSpan');
     if (e) e.textContent = `pleine echelle ±${data.span}`;
   }
-  if (data.dac !== undefined) {
-    const e = document.getElementById('dac');
-    if (e) e.textContent = data.dac;
+  if (data.pwm !== undefined && data.pwm_full) {
+    const e = document.getElementById('pwm');
+    if (e) e.textContent = `${(100 * data.pwm / data.pwm_full).toFixed(1)} %`;
   }
   if (data.tension_permille !== undefined) {
     const e = document.getElementById('tensionLevel');

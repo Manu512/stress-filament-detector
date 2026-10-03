@@ -5,7 +5,7 @@
 // simultanement :
 //
 //   - deux sorties tout ou rien      -> Happy Hare type D (tension/compression)
-//   - une sortie analogique (DAC)    -> Happy Hare type P (proportionnel)
+//   - une sortie analogique (PWM filtre) -> Happy Hare type P (proportionnel)
 //
 // Les deux coexistent : on bascule cote Klipper en changeant la config, sans
 // reflasher. Type P donne a Happy Hare un AutoTune par EKF au lieu du mode
@@ -37,17 +37,21 @@ using stress::State;
 
 #define SENSOR_1_PIN 32   // ADC1, capteur Hall S1
 #define SENSOR_2_PIN 33   // ADC1, capteur Hall S2
-#define OUTPUT_1_PIN 26   // DAC2 - tout ou rien (compression) OU sortie analogique
-#define OUTPUT_2_PIN 25   // DAC1 - tout ou rien (tension)
+#define OUTPUT_1_PIN 26   // tout ou rien (compression)
+#define OUTPUT_2_PIN 25   // tout ou rien (tension) OU sortie analogique
 
-// GPIO 25 et 26 sont les deux seules broches DAC de l'ESP32. La version
-// d'origine les utilisait deja, en numerique : le passage au proportionnel ne
-// demande donc aucun changement de cablage cote module.
+// OUTPUT_2_PIN (GPIO 25) porte l'analogique, OUTPUT_1_PIN reste numerique.
+// Ainsi une seule des deux fonctions est perdue, et le mode type D reste
+// utilisable en secours sur la sortie restante.
 //
-// Choix par defaut : OUTPUT_2_PIN (GPIO 25) porte l'analogique, OUTPUT_1_PIN
-// reste numerique. Ainsi une seule des deux fonctions est perdue, et le mode
-// type D reste utilisable en secours sur la sortie restante.
+// L'analogique est un PWM, et non plus le DAC : il EXIGE le filtre RC (1 kOhm
+// en serie, 10 uF vers la masse) entre GPIO 25 et le cable. Sans lui, la MMB
+// echantillonnerait un signal carre. Voir stress_core.h pour le pourquoi.
 #define ANALOG_OUT_PIN OUTPUT_2_PIN
+
+// Canal LEDC de la sortie analogique. Le 0 est libre : rien d'autre dans ce
+// firmware n'utilise LEDC.
+constexpr uint8_t kCanalPwm = 0;
 
 static const char* kHostname   = "stress-filament";
 static const char* kApPassword = "";   // point d'acces ouvert ; renseigner pour proteger
@@ -62,7 +66,7 @@ static int32_t  deltaFiltre = 0;
 static State    etatCourant = State::Neutral;
 static int32_t  dernierRaw1 = 0;
 static int32_t  dernierRaw2 = 0;
-static uint8_t  dernierDac  = stress::kDacNeutral;
+static uint16_t dernierDuty = stress::kPwmNeutral;
 
 // Sortie analogique active. Quand elle l'est, OUTPUT_2_PIN porte une tension
 // continue et ne peut plus servir de sortie logique.
@@ -152,34 +156,39 @@ static void logToClients(const String& msg, LogCategory cat = CAT_DBG) {
 
 static void appliquerSorties(int32_t delta, State etat) {
     if (sortieAnalogique) {
-        dernierDac = stress::deltaToDac(delta, cal);
-        dacWrite(ANALOG_OUT_PIN, dernierDac);
+        dernierDuty = stress::deltaToDuty(delta, cal);
+        ledcWrite(kCanalPwm, dernierDuty);
         // La sortie restante continue de signaler la compression, ce qui
         // permet de garder un endstop de homing extrudeur cote Klipper.
         digitalWrite(OUTPUT_1_PIN, etat == State::Compression ? HIGH : LOW);
     } else {
         digitalWrite(OUTPUT_1_PIN, etat == State::Compression ? HIGH : LOW);
         digitalWrite(OUTPUT_2_PIN, etat == State::Tension     ? HIGH : LOW);
-        dernierDac = stress::kDacNeutral;
+        dernierDuty = stress::kPwmNeutral;
     }
 }
 
 static void mettreSortiesAuRepos() {
-    if (!sortieAnalogique) {
-        // Sur ESP32, une broche passee en DAC reste pilotee par le peripherique
-        // DAC : un pinMode/digitalWrite ensuite ne reprend PAS la main sur le
-        // pad. Sans dacDisable(), GPIO 25 resterait a la derniere tension
-        // ecrite (environ 1,65 V au neutre) et Happy Hare verrait un niveau
-        // indetermine au lieu d'une sortie logique propre.
-        dacDisable(ANALOG_OUT_PIN);
-    }
-
     pinMode(OUTPUT_1_PIN, OUTPUT);
-    pinMode(OUTPUT_2_PIN, OUTPUT);
     digitalWrite(OUTPUT_1_PIN, LOW);
-    digitalWrite(OUTPUT_2_PIN, LOW);
 
-    if (sortieAnalogique) dacWrite(ANALOG_OUT_PIN, stress::kDacNeutral);
+    if (sortieAnalogique) {
+        // On n'ecrit pas de niveau bas sur GPIO 25 avant de lancer le PWM : la
+        // sortie part au neutre. Le canal est attache avec un rapport cyclique
+        // nul, corrige a l'appel suivant, ce que le filtre RC absorbe.
+        if (ledcSetup(kCanalPwm, stress::kPwmFreqHz, stress::kPwmBits) == 0) {
+            Serial.println("ERREUR: LEDC refuse la frequence/resolution PWM");
+        }
+        ledcAttachPin(ANALOG_OUT_PIN, kCanalPwm);
+        ledcWrite(kCanalPwm, stress::kPwmNeutral);
+        dernierDuty = stress::kPwmNeutral;
+    } else {
+        // Retour en tout ou rien : on rend explicitement le pad a la logique
+        // avant de l'ecrire, pour que GPIO 25 ne reste pas sur le PWM.
+        ledcDetachPin(ANALOG_OUT_PIN);
+        pinMode(OUTPUT_2_PIN, OUTPUT);
+        digitalWrite(OUTPUT_2_PIN, LOW);
+    }
 }
 
 // --------------------------------------------------------------------------
@@ -246,7 +255,8 @@ static void notifierClients() {
     doc["span"]             = cal.span;
     doc["hysteresis"]       = cal.hysteresis;
     doc["alpha"]            = alphaQ8;
-    doc["dac"]              = dernierDac;
+    doc["pwm"]              = dernierDuty;
+    doc["pwm_full"]         = stress::kPwmFull;
     doc["analog_out"]       = sortieAnalogique;
     doc["tension_permille"] = stress::tensionLevelPermille(deltaFiltre, cal);
     const net::Status& n = net::status();
@@ -301,8 +311,8 @@ static void traiterCommande(JsonDocument& doc) {
 
         } else if (cmd == "capture_span") {
             // A executer buffer pousse a fond d'un cote : l'amplitude mesuree
-            // devient la pleine echelle. Sans cela, la conversion DAC n'a pas
-            // d'echelle de reference.
+            // devient la pleine echelle. Sans cela, la conversion analogique
+            // n'a pas d'echelle de reference.
             const int32_t amplitude = deltaFiltre < 0 ? -deltaFiltre : deltaFiltre;
             if (amplitude > cal.neutral_zone) {
                 cal.span  = amplitude;

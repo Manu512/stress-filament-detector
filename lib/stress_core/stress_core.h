@@ -43,36 +43,41 @@ struct Calibration {
     int32_t neutral_zone = 16;    // demi-largeur de la zone neutre, en delta
     int32_t hysteresis   = 8;     // marge supplementaire pour quitter un etat
 
-    // Une calibration incoherente ferait diverger la conversion DAC ou
+    // Une calibration incoherente ferait diverger la conversion analogique ou
     // bloquerait la machine a etats. On la valide avant de s'en servir.
     bool isValid() const;
 };
 
-// Plage DAC reellement utilisable. Le DAC de l'ESP32 est un 8 bits 0..255, mais
-// on n'en exploite que le haut, et ce n'est pas un choix de confort.
+// Sortie analogique : rapport cyclique d'un PWM, lisse par un filtre RC
+// (1 kOhm + 10 uF) soude cote module, entre GPIO 25 et le cable vers la MMB.
 //
-// Son buffer de sortie sait fournir du courant, pas en absorber. L'entree STP8
-// de la MMB CAN porte un tirage vers le haut (5 a 8 kOhm, deduit d'une mesure),
-// et le DAC ne parvient pas a descendre le noeud sous environ 1,9 V. Releve du
-// 2026-09-24, en imposant le DAC pas a pas et en lisant l'ADC de la MMB :
+// Pourquoi plus le DAC. Son buffer de sortie sait fournir du courant, pas en
+// absorber. L'entree STP8 de la MMB CAN porte un tirage vers le haut (5 a 8
+// kOhm, deduit d'une mesure), et le DAC ne parvenait pas a descendre le noeud
+// sous environ 1,9 V : la courbe s'inversait sous dac 144, ce qui limitait la
+// sortie a la plage 160..255, soit 96 pas. Une sortie logique est push-pull :
+// la MEME broche pilotee en numerique atteint 0,017 V et 3,300 V. Le PWM en
+// herite, et le filtre en fait une tension continue.
 //
-//     dac   0..144   lecture coincee entre 2,07 et 1,89 V, et DECROISSANTE
-//     dac 144        coude
-//     dac 144..255   lineaire, collee au nominal a 0,1 V pres
-//
-// Sous le coude la courbe de transfert s'inverse : deux positions du bras y
-// donnent la meme tension, ce qui interdit tout capteur proportionnel. Le
-// cablage n'est pas en cause, verifie separement : la MEME broche pilotee en
-// numerique atteint 0,017 V et 3,300 V.
-//
-// On part de 160 et non de 145 : 16 pas de marge sous le coude, dont la
-// stabilite en temperature n'a pas ete caracterisee.
-constexpr uint8_t kDacMin     = 160;
-constexpr uint8_t kDacMax     = 255;
+// 11 bits a 20 kHz : l'horloge du peripherique LEDC est a 80 MHz, soit 4000
+// pas par periode. 11 bits (2048 pas) est la plus grande resolution qui tient.
+constexpr uint8_t  kPwmBits   = 11;
+constexpr uint32_t kPwmFreqHz = 20000;
+constexpr uint16_t kPwmFull   = (1u << kPwmBits) - 1;   // 2047, soit 100 %
 
-// Neutre au milieu de la plage utile. De 160 a 255 il y a 96 valeurs, dont le
-// centre exact tombe a 207,5 : on prend 208, et deltaToDac arrondit de meme.
-constexpr uint8_t kDacNeutral = kDacMin + (kDacMax - kDacMin + 1) / 2;
+// On reste a 5 % des deux rails. A 0 % ou 100 % la broche ne commute plus, et
+// rien ne distinguerait alors une butee d'une sortie figee ou d'un fil coupe.
+//
+// Les tensions reellement lues par la MMB dependent du pont forme par la
+// resistance du filtre et le tirage de l'entree : elles se MESURENT (bornes
+// sync_feedback_analog_* de Happy Hare), elles ne se deduisent pas d'ici.
+constexpr uint16_t kPwmMin = 102;    //  5 % de 2047
+constexpr uint16_t kPwmMax = 1945;   // 95 % de 2047
+
+// Neutre au milieu de la plage utile. De 102 a 1945 il y a 1844 valeurs, dont
+// le centre exact tombe a 1023,5 : on prend 1024, et deltaToDuty arrondit de
+// meme.
+constexpr uint16_t kPwmNeutral = kPwmMin + (kPwmMax - kPwmMin + 1) / 2;
 
 // Delta signe a partir des deux lectures brutes.
 //
@@ -88,11 +93,11 @@ int32_t computeDelta(int32_t raw1, int32_t raw2, const Calibration& cal);
 // Pas de flottant, pas de division : l'operation tourne a chaque tour de boucle.
 int32_t emaUpdate(int32_t previous, int32_t sample, uint16_t alpha_q8);
 
-// Conversion du delta en valeur DAC, lineaire et saturee sur la plage utile.
-// -span tombe exactement sur kDacMin, +span sur kDacMax, 0 sur kDacNeutral.
-// La sortie ne descend JAMAIS sous kDacMin : en dessous, la MMB ne lirait plus
-// une image de la position du bras (voir le commentaire de kDacMin).
-uint8_t deltaToDac(int32_t delta, const Calibration& cal);
+// Conversion du delta en rapport cyclique PWM, lineaire et saturee sur la plage
+// utile. -span tombe exactement sur kPwmMin, +span sur kPwmMax, 0 sur
+// kPwmNeutral. La sortie ne quitte JAMAIS [kPwmMin, kPwmMax] (voir le
+// commentaire de kPwmMin).
+uint16_t deltaToDuty(int32_t delta, const Calibration& cal);
 
 // Transition d'etat avec hysteresis : il faut depasser neutral_zone pour
 // entrer dans un etat, et repasser sous (neutral_zone - hysteresis) pour en
