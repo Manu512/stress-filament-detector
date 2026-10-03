@@ -2,9 +2,11 @@
 
 // Variables globales
 let ws = null;
-let neutralRaw1 = 2000;
-let neutralRaw2 = 1993;
-let deadbandPoints = 8;
+// Valeurs par defaut du firmware, en millivolts. Elles sont remplacees des la
+// premiere trame recue du module.
+let neutralRaw1 = 1751;
+let neutralRaw2 = 1639;
+let deadbandPoints = 16;
 
 // Initialisation
 document.addEventListener('DOMContentLoaded', function() {
@@ -111,8 +113,15 @@ function updateUI(data) {
   if (data.output2 !== undefined) {
     const output2El = document.getElementById('output2');
     if (output2El) {
-      output2El.textContent = data.output2 ? 'HIGH' : 'LOW';
-      output2El.className = data.output2 ? 'output-value high' : 'output-value low';
+      // En mode analogique GPIO 25 ne porte pas un niveau logique : afficher
+      // LOW serait faux.
+      if (data.analog_out) {
+        output2El.textContent = 'DAC';
+        output2El.className = 'output-value low';
+      } else {
+        output2El.textContent = data.output2 ? 'HIGH' : 'LOW';
+        output2El.className = data.output2 ? 'output-value high' : 'output-value low';
+      }
     }
   }
   
@@ -144,6 +153,9 @@ function updateUI(data) {
   
   if (data.neutral_zone !== undefined) {
     deadbandPoints = data.neutral_zone;
+    const zoneTampon = document.getElementById('zoneTampon');
+    if (zoneTampon) zoneTampon.textContent = `±${deadbandPoints}`;
+    updateZoneStatus();
   }
 }
 

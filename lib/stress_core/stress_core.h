@@ -48,6 +48,15 @@ struct Calibration {
     bool isValid() const;
 };
 
+// Remplace `target` par `candidate` seulement si ce dernier est coherent, et
+// dit s'il l'a fait. Sert aux commandes de calibration : des valeurs refusees
+// ne doivent pas ecraser la calibration en service, meme en memoire vive.
+bool assignIfValid(Calibration& target, const Calibration& candidate);
+
+// Constante de filtrage acceptable : de 1 (filtrage tres fort) a 256 (aucun
+// filtrage). 0 figerait le filtre, donc la sortie.
+bool isValidAlpha(int32_t alpha_q8);
+
 // Plage DAC reellement utilisable. Le DAC de l'ESP32 est un 8 bits 0..255, mais
 // on n'en exploite que le haut, et ce n'est pas un choix de confort.
 //

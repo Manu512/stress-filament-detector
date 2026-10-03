@@ -284,13 +284,17 @@ static void traiterCommande(JsonDocument& doc) {
             // determine donc comme le milieu mecanique des deux butees, ce qui
             // est objectif et reproductible, au lieu de le capturer a la main.
             if (doc["n1"].is<int>() && doc["n2"].is<int>()) {
-                cal.neutral1 = doc["n1"].as<int>();
-                cal.neutral2 = doc["n2"].as<int>();
-                if (doc["span"].is<int>()) cal.span = doc["span"].as<int>();
-                deltaFiltre = 0;
-                etatCourant = State::Neutral;
-                calValide = cal.isValid();
-                if (calValide) {
+                // On valide une copie avant de toucher a la calibration en
+                // service : des valeurs refusees ne la remplacent pas, meme
+                // en memoire vive.
+                stress::Calibration candidat = cal;
+                candidat.neutral1 = doc["n1"].as<int>();
+                candidat.neutral2 = doc["n2"].as<int>();
+                if (doc["span"].is<int>()) candidat.span = doc["span"].as<int>();
+                if (stress::assignIfValid(cal, candidat)) {
+                    deltaFiltre = 0;
+                    etatCourant = State::Neutral;
+                    calValide   = true;
                     enregistrerCalibration();
                     logToClients("Neutre impose: " + String(cal.neutral1) + "/" +
                                  String(cal.neutral2) + ", span " + String(cal.span), CAT_OUTPUT);
@@ -314,13 +318,21 @@ static void traiterCommande(JsonDocument& doc) {
             }
 
         } else if (cmd == "save_simple_calibration") {
-            if (doc["deadband_points"].is<int>()) cal.neutral_zone = doc["deadband_points"].as<int>();
-            if (doc["hysteresis"].is<int>())      cal.hysteresis   = doc["hysteresis"].as<int>();
-            if (doc["span"].is<int>())            cal.span         = doc["span"].as<int>();
-            if (doc["alpha"].is<int>())           alphaQ8          = doc["alpha"].as<int>();
-            calValide = cal.isValid();
-            if (!calValide) logToClients("Calibration refusee: valeurs incoherentes", CAT_OUTPUT);
-            else            enregistrerCalibration();
+            // Meme principe que set_neutral : on valide une copie, et rien
+            // n'est applique si l'ensemble est incoherent.
+            stress::Calibration candidat = cal;
+            int32_t alpha = alphaQ8;
+            if (doc["deadband_points"].is<int>()) candidat.neutral_zone = doc["deadband_points"].as<int>();
+            if (doc["hysteresis"].is<int>())      candidat.hysteresis   = doc["hysteresis"].as<int>();
+            if (doc["span"].is<int>())            candidat.span         = doc["span"].as<int>();
+            if (doc["alpha"].is<int>())           alpha                 = doc["alpha"].as<int>();
+            if (stress::isValidAlpha(alpha) && stress::assignIfValid(cal, candidat)) {
+                alphaQ8   = static_cast<uint16_t>(alpha);
+                calValide = true;
+                enregistrerCalibration();
+            } else {
+                logToClients("Calibration refusee: valeurs incoherentes", CAT_OUTPUT);
+            }
 
         } else if (cmd == "set_analog_output") {
             sortieAnalogique = doc["enabled"].as<bool>();
