@@ -81,6 +81,21 @@ GND ────────────────────┴────�
 
 Placez la résistance et le condensateur côté module, au plus près de GPIO 25 : le câble transporte alors une tension continue, et non le signal à 20 kHz.
 
+### 🧲 Sens de l'aimant
+
+Le sens de l'aimant fixe le signe de la mesure. Les SS49E sont des capteurs linéaires : leur tension monte face à un pôle et descend face à l'autre. Aimant retourné, le module annonce une tension quand le buffer est en compression.
+
+Le firmware attend, en compression, S1 haut et S2 bas, donc un `delta` positif. Relevé sur la machine de test :
+
+| Position du buffer | S1 | S2 | `delta` |
+|---|---|---|---|
+| Butée de compression (repos) | 1753 mV | 1607 mV | positif |
+| Butée de tension | 1662 mV | 1770 mV | négatif |
+
+**Contrôle à faire avant de fixer l'aimant.** Buffer au repos, donc en butée de compression, l'interface web doit afficher COMPRESSION et un `delta` positif. Si elle affiche TENSION, retournez l'aimant.
+
+Si l'aimant est déjà fixé à l'envers, inversez les fils de S1 et S2 (GPIO 32 et 33) : d'après la formule du `delta`, cela rétablit le signe. Dans les deux cas, refaites ensuite la [calibration](#calibration) par les deux butées.
+
 ### 🔗 Connexion à la carte MMU
 
 **Exemple sur BIGTREETECH MMB CAN :**
