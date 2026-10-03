@@ -19,6 +19,8 @@ Le module fournit cette mesure à Happy Hare de deux façons, **en même temps**
 
 Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas besoin de reflasher l'ESP32. En type P, Happy Hare règle en continu la vitesse du moteur du MMU (autotune par filtre de Kalman étendu), au lieu de la faire osciller entre deux niveaux.
 
+**Deux variantes de la sortie analogique.** Cette branche (`sortie-dac-direct`) utilise le DAC de l'ESP32, relié directement à la carte MMU : aucun composant à ajouter, mais une plage limitée (voir l'avertissement plus bas). La branche `sortie-pwm-filtre-rc` le remplace par un PWM filtré par une résistance et un condensateur : la plage lue par Klipper est environ 2,4 fois plus large et compte 1844 niveaux au lieu de 96. Les deux variantes n'ont ni le même câblage ni les mêmes bornes Klipper.
+
 **🔬 Basé sur :** ce projet reprend et améliore le [Voron ERCF Filament Stress Sensor](https://www.printables.com/model/803180-voron-ercf-filament-stress-sensor) de **jmillerfo**. Il est adapté à l'ESP32, avec une interface web et une intégration Happy Hare.
 
 **🖨️ Testé sur :** Voron 2.4 R2, BIGTREETECH MMB CAN, Happy Hare v3, Kalico.
@@ -78,7 +80,7 @@ ESP32 GPIO 25 (analogique)  ──► MMB STP8 (PB12), entrée lue par l'ADC
 ESP32 GPIO 26 (secours)     ──► une entrée libre, uniquement pour le type D
 ```
 
-> ⚠️ **Plage DAC limitée à 160-255.** Le DAC de l'ESP32 sait fournir du courant, mais presque pas en absorber. Sur l'entrée STP8 de la MMB, il ne parvient pas à descendre sous environ 1,9 V : en dessous de la valeur 144, la courbe se tasse puis s'inverse. Le firmware n'utilise donc que la plage 160-255, avec le neutre à 208. Les bornes à déclarer dans Klipper dépendent de la carte et de son entrée : **mesurez-les sur votre machine.**
+> ⚠️ **Plage DAC limitée à 160-255.** Le DAC de l'ESP32 sait fournir du courant, mais presque pas en absorber. Sur l'entrée STP8 de la MMB, il ne parvient pas à descendre sous environ 1,9 V : en dessous de la valeur 144, la courbe se tasse puis s'inverse. Le firmware n'utilise donc que la plage 160-255, avec le neutre à 208. Les bornes à déclarer dans Klipper dépendent de la carte et de son entrée : **mesurez-les sur votre machine.** Elles valent pour un DAC relié directement à l'entrée : si vous ajoutez un filtre en série, elles sont à remesurer.
 
 ## 🖨️ Intégration Klipper / Happy Hare
 
@@ -102,7 +104,13 @@ sync_feedback_buffer_range: 12      # course utile du buffer, en mm, à mesurer
 sync_feedback_buffer_maxrange: 14   # course maximale, en mm
 ```
 
-Pour relever les bornes, placez le bras du buffer en tension maximale, au neutre, puis en compression maximale. Pour chaque position, notez la valeur lue par Klipper sur `mmu:PB12`. Ne reprenez pas les valeurs ci-dessus telles quelles.
+Ces trois bornes sont les valeurs lues par la carte MMU quand la sortie du module est à son minimum, à son milieu et à son maximum (DAC 160, 208 et 255). Elles dépendent de la carte et du câblage, pas de la position de l'aimant. Pour les relever :
+
+1. Calibrez d'abord le module (voir [Calibration](#calibration)), pour que les deux butées du buffer saturent la sortie.
+2. Tenez le buffer en butée de tension, puis laissez-le revenir en butée de compression. Dans chaque position, lisez `value_raw` de l'objet `filament_proportional`, par exemple à l'adresse `http://<imprimante>:7125/printer/objects/query?filament_proportional`.
+3. Le neutre est le milieu des deux valeurs : la réponse est linéaire sur la plage 160-255.
+
+Ne reprenez pas les valeurs ci-dessus telles quelles. Klipper ne lit ces bornes qu'au démarrage : redémarrez-le après les avoir modifiées.
 
 ### Mode tout ou rien (type D), en secours
 
@@ -128,7 +136,8 @@ pip install platformio
 pio run -e wemos_d1_mini32 -t upload      # firmware, par USB
 pio run -e wemos_d1_mini32 -t uploadfs    # interface web (LittleFS)
 
-pio run -e wemos_d1_mini32_ota -t upload  # ensuite, par le réseau (OTA)
+pio run -e wemos_d1_mini32_ota -t upload    # ensuite, firmware par le réseau (OTA)
+pio run -e wemos_d1_mini32_ota -t uploadfs  # et interface web par le réseau
 ```
 Avant d'utiliser l'OTA, adaptez `upload_port` dans `platformio.ini` au nom ou à l'IP de votre module.
 
@@ -159,6 +168,19 @@ Les valeurs sont **en millivolts**, lues avec `analogReadMilliVolts()`. Tant qu'
 | `set_analog_output` | active ou désactive la sortie analogique |
 | `set_wifi` / `forget_wifi` | enregistre ou efface les identifiants Wi-Fi |
 
+#### Procédure recommandée : par les deux butées
+
+Le point neutre de ce buffer n'est pas sa position de repos : le ressort pousse le bras vers la compression. Le capturer à la main avec `capture_neutral` est donc peu reproductible. La méthode recommandée part des deux butées mécaniques :
+
+1. Buffer au repos, donc en butée de compression : relevez S1 et S2 dans l'interface web.
+2. Buffer tenu en butée de tension : relevez de nouveau S1 et S2.
+3. Le neutre de chaque capteur est le milieu de ses deux relevés. La pleine échelle est la moitié de l'écart de `S1 - S2` entre les deux butées, diminuée de quelques unités (l'amplitude du bruit) pour que les butées saturent franchement la sortie.
+4. Envoyez le résultat sur le WebSocket `/ws` : `{"cmd": "set_neutral", "n1": 1708, "n2": 1689, "span": 125}`.
+
+Les valeurs de cet exemple sont celles de la machine de test : butées relevées à 1753 / 1607 mV et à 1662 / 1770 mV, soit une course de ±127 autour du milieu.
+
+Refaites cette calibration chaque fois que l'aimant est déplacé. S'il n'est pas bloqué mécaniquement sur son support, il glisse, et le neutre dérive d'une impression à l'autre.
+
 ### Logique de mesure
 - `delta = (S1 - neutre1) - (S2 - neutre2)`, filtré par une moyenne exponentielle.
 - `delta > 0` : **compression** ; `delta < 0` : **tension**.
@@ -169,7 +191,7 @@ Les valeurs sont **en millivolts**, lues avec `analogReadMilliVolts()`. Tant qu'
 
 | Paramètre | Valeur | Description |
 |---|---|---|
-| Échantillonnage | 20 Hz | lecture des capteurs |
+| Échantillonnage | 25 Hz | lecture brute à 200 Hz, moyennée par 8 |
 | Neutre S1 / S2 | 1751 / 1639 mV | ordre de grandeur, à calibrer |
 | Pleine échelle (`span`) | 150 | écart correspondant à la pleine échelle |
 | Bande morte | ±16 | demi-largeur de la zone neutre |
@@ -196,6 +218,7 @@ Tout ce qui prend une décision se trouve dans `lib/stress_core` et se teste sur
 ```bash
 pio test -e native
 ```
+Il faut un compilateur C++ sur le PC (`gcc` et `g++`). Sous Windows, installez MinGW ou lancez la commande depuis WSL.
 
 ### Dépendances
 - `ESP32Async/AsyncTCP`
