@@ -44,7 +44,8 @@ constexpr uint32_t kRetryDelayMs     = 20000;
 constexpr uint8_t  kFailuresBeforeAp = 3;
 
 // Charge les identifiants depuis la NVS. Renvoie false si aucun n'est stocke,
-// auquel cas begin() partira directement en point d'acces.
+// auquel cas begin() tente quand meme une connexion, avec ceux que le pilote
+// WiFi a conserves. Le point d'acces n'arrive qu'apres kFailuresBeforeAp echecs.
 bool loadCredentials();
 
 // Enregistre de nouveaux identifiants en NVS et relance la connexion.
