@@ -14,12 +14,12 @@ Le module fournit cette mesure à Happy Hare de deux façons, **en même temps**
 
 | Sortie | Broche | Mode Happy Hare | Usage |
 |---|---|---|---|
-| Analogique (DAC) | GPIO 25 | **type P** (proportionnel) | mode recommandé, par défaut |
+| Analogique (PWM filtré) | GPIO 25 | **type P** (proportionnel) | mode recommandé, par défaut |
 | Tout ou rien | GPIO 26 | type D (tension/compression) | secours |
 
 Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas besoin de reflasher l'ESP32. En type P, Happy Hare règle en continu la vitesse du moteur du MMU (autotune par filtre de Kalman étendu), au lieu de la faire osciller entre deux niveaux.
 
-**Deux variantes de la sortie analogique.** Cette branche (`sortie-dac-direct`) utilise le DAC de l'ESP32, relié directement à la carte MMU : aucun composant à ajouter, mais une plage limitée (voir l'avertissement plus bas). La branche `sortie-pwm-filtre-rc` le remplace par un PWM filtré par une résistance et un condensateur : la plage lue par Klipper est environ 2,4 fois plus large et compte 1844 niveaux au lieu de 96. Les deux variantes n'ont ni le même câblage ni les mêmes bornes Klipper.
+**Deux variantes de la sortie analogique.** Cette branche (`sortie-pwm-filtre-rc`) sort un PWM filtré par une résistance et un condensateur, à souder côté module : la plage lue par Klipper est environ 2,4 fois plus large qu'avec le DAC et compte 1844 niveaux au lieu de 96. La branche `sortie-dac-direct` utilise le DAC de l'ESP32, relié directement à la carte MMU : aucun composant à ajouter, mais une plage limitée. Les deux variantes n'ont ni le même câblage ni les mêmes bornes Klipper.
 
 **🔬 Basé sur :** ce projet reprend et améliore le [Voron ERCF Filament Stress Sensor](https://www.printables.com/model/803180-voron-ercf-filament-stress-sensor) de **jmillerfo**. Il est adapté à l'ESP32, avec une interface web et une intégration Happy Hare.
 
@@ -41,7 +41,7 @@ Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas b
 
 ## ✨ Fonctionnalités
 
-- 📏 **Mesure proportionnelle** : sortie analogique pour Happy Hare type P
+- 📏 **Mesure proportionnelle** : sortie analogique pour Happy Hare type P, en PWM filtré sur 1844 niveaux
 - 🎯 **Sortie tout ou rien conservée** : compression, neutre ou tension, avec hystérésis
 - 🧮 **Mesure différentielle** : la différence entre les deux capteurs annule la dérive thermique et les variations d'alimentation
 - 🛡️ **La mesure ne dépend jamais du réseau** : le Wi-Fi ne bloque jamais la boucle de mesure
@@ -54,6 +54,7 @@ Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas b
 
 - **ESP32 Wemos D1 Mini 32**
 - **2x capteurs Hall SS49E**
+- **1 résistance de 1 kΩ et 1 condensateur de 10 µF**, pour le filtre de la sortie analogique
 - **Alimentation 5V**, fournie par la carte MMU
 
 ## 📐 Schéma de connexion
@@ -62,13 +63,23 @@ Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas b
 ESP32 D1 Mini 32
 ├── GPIO 32 ──── Capteur S1 (SS49E)          entrée ADC1
 ├── GPIO 33 ──── Capteur S2 (SS49E)          entrée ADC1
-├── GPIO 25 ──── Sortie ANALOGIQUE (DAC1)    -> Happy Hare type P
-├── GPIO 26 ──── Sortie tout ou rien (DAC2)  -> Happy Hare type D, en secours
+├── GPIO 25 ──── Sortie ANALOGIQUE (PWM)     -> filtre RC -> Happy Hare type P
+├── GPIO 26 ──── Sortie tout ou rien         -> Happy Hare type D, en secours
 ├── 3.3V   ──── VCC capteurs
 └── GND    ──── GND capteurs
 ```
 
-GPIO 25 et 26 sont les deux seules broches DAC de l'ESP32. En mode analogique, GPIO 25 fournit une tension continue et ne sert plus de sortie logique.
+En mode analogique, GPIO 25 sort un PWM à 20 kHz et ne sert plus de sortie logique. **Le filtre RC est obligatoire** : sans lui, la carte MMU échantillonnerait un signal carré.
+
+```
+GPIO 25 ────[ 1 kΩ ]────┬──────── câble vers la carte MMU
+                        │
+                      ══╧══ 10 µF   (+ côté résistance si le condensateur est polarisé)
+                        │
+GND ────────────────────┴──────── GND
+```
+
+Placez la résistance et le condensateur côté module, au plus près de GPIO 25 : le câble transporte alors une tension continue, et non le signal à 20 kHz.
 
 ### 🔗 Connexion à la carte MMU
 
@@ -76,11 +87,15 @@ GPIO 25 et 26 sont les deux seules broches DAC de l'ESP32. En mode analogique, G
 ```
 ESP32 5V                    ──► MMB 5V
 ESP32 GND                   ──► MMB GND
-ESP32 GPIO 25 (analogique)  ──► MMB STP8 (PB12), entrée lue par l'ADC
+ESP32 GPIO 25, après filtre ──► MMB STP8 (PB12), entrée lue par l'ADC
 ESP32 GPIO 26 (secours)     ──► une entrée libre, uniquement pour le type D
 ```
 
-> ⚠️ **Plage DAC limitée à 160-255.** Le DAC de l'ESP32 sait fournir du courant, mais presque pas en absorber. Sur l'entrée STP8 de la MMB, il ne parvient pas à descendre sous environ 1,9 V : en dessous de la valeur 144, la courbe se tasse puis s'inverse. Le firmware n'utilise donc que la plage 160-255, avec le neutre à 208. Les bornes à déclarer dans Klipper dépendent de la carte et de son entrée : **mesurez-les sur votre machine.** Elles valent pour un DAC relié directement à l'entrée : si vous ajoutez un filtre en série, elles sont à remesurer.
+> ℹ️ **Pourquoi un PWM et non le DAC.** Le DAC de l'ESP32 sait fournir du courant, mais presque pas en absorber. Face au tirage de l'entrée STP8 de la MMB, il ne descendait pas sous environ 1,9 V, ce qui limitait la sortie à 96 niveaux. Une sortie logique tire aussi bien vers la masse que vers le 3,3 V : le PWM filtré descend à 0,46 V sur la machine de test. Le rapport cyclique reste entre 5 % et 95 %, avec le neutre à 50 %.
+
+> ⚠️ **Les tensions lues par Klipper se mesurent.** Elles dépendent du pont formé par la résistance du filtre et le tirage de l'entrée de la carte. Changer la résistance, le condensateur ou la carte impose de relever de nouveau les bornes.
+
+> ⚠️ **Passage depuis le firmware DAC.** Après une mise à jour OTA depuis le firmware DAC, le DAC reste actif sur GPIO 25 et fige la sortie. Ce firmware le désactive donc au démarrage, avant de lancer le PWM. Dans l'autre sens, revenir au firmware DAC impose de remettre ses bornes dans Klipper, et de les remesurer si le filtre reste en place.
 
 ## 🖨️ Intégration Klipper / Happy Hare
 
@@ -92,9 +107,9 @@ sync_feedback_tension_pin:
 sync_feedback_compression_pin:
 sync_feedback_analog_pin: mmu:PB12
 # Tensions lues par la MMB, normalisées entre 0 et 1, relevées sur la machine de test :
-sync_feedback_analog_max_tension: 0.623
-sync_feedback_analog_neutral_point: 0.795
-sync_feedback_analog_max_compression: 0.969
+sync_feedback_analog_max_tension: 0.139
+sync_feedback_analog_neutral_point: 0.550
+sync_feedback_analog_max_compression: 0.961
 ```
 
 **`mmu_parameters.cfg`**, section `[mmu]` :
@@ -104,11 +119,11 @@ sync_feedback_buffer_range: 12      # course utile du buffer, en mm, à mesurer
 sync_feedback_buffer_maxrange: 14   # course maximale, en mm
 ```
 
-Ces trois bornes sont les valeurs lues par la carte MMU quand la sortie du module est à son minimum, à son milieu et à son maximum (DAC 160, 208 et 255). Elles dépendent de la carte et du câblage, pas de la position de l'aimant. Pour les relever :
+Ces trois bornes sont les valeurs lues par la carte MMU quand la sortie du module est à son minimum, à son milieu et à son maximum (rapport cyclique de 5 %, 50 % et 95 %). Elles dépendent de la carte et du câblage, pas de la position de l'aimant. Pour les relever :
 
 1. Calibrez d'abord le module (voir [Calibration](#calibration)), pour que les deux butées du buffer saturent la sortie.
 2. Tenez le buffer en butée de tension, puis laissez-le revenir en butée de compression. Dans chaque position, lisez `value_raw` de l'objet `filament_proportional`, par exemple à l'adresse `http://<imprimante>:7125/printer/objects/query?filament_proportional`.
-3. Le neutre est le milieu des deux valeurs : la réponse est linéaire sur la plage 160-255.
+3. Le neutre est le milieu des deux valeurs : la réponse est linéaire. Sur la machine de test, neuf points relevés de 5 % à 95 % s'écartent de la droite de 0,0017 au plus.
 
 Ne reprenez pas les valeurs ci-dessus telles quelles. Klipper ne lit ces bornes qu'au démarrage : redémarrez-le après les avoir modifiées.
 
@@ -153,7 +168,7 @@ Après 3 échecs de connexion consécutifs, le module repasse en point d'accès.
 ## 🎮 Utilisation
 
 ### Interface web
-Accessible à l'adresse IP du module, ou par son nom d'hôte si votre réseau le résout : par exemple `http://stress-filament.lan`. Elle affiche en temps réel les deux capteurs, l'écart entre eux, la valeur DAC, l'état, le niveau de tension et le RSSI Wi-Fi.
+Accessible à l'adresse IP du module, ou par son nom d'hôte si votre réseau le résout : par exemple `http://stress-filament.lan`. Elle affiche en temps réel les deux capteurs, l'écart entre eux, le rapport cyclique de la sortie, l'état, le niveau de tension et le RSSI Wi-Fi.
 
 ### Calibration
 Les valeurs sont **en millivolts**, lues avec `analogReadMilliVolts()`. Tant qu'aucune calibration valide n'est enregistrée, la mesure n'a pas de référence.
@@ -184,7 +199,7 @@ Refaites cette calibration chaque fois que l'aimant est déplacé. S'il n'est pa
 ### Logique de mesure
 - `delta = (S1 - neutre1) - (S2 - neutre2)`, filtré par une moyenne exponentielle.
 - `delta > 0` : **compression** ; `delta < 0` : **tension**.
-- La sortie analogique est proportionnelle à `delta` sur la plage DAC 160-255.
+- La sortie analogique est proportionnelle à `delta`, de 5 % à 95 % de rapport cyclique.
 - La sortie tout ou rien applique une bande morte et une hystérésis.
 
 ## 📊 Paramètres par défaut
@@ -197,7 +212,7 @@ Refaites cette calibration chaque fois que l'aimant est déplacé. S'il n'est pa
 | Bande morte | ±16 | demi-largeur de la zone neutre |
 | Hystérésis | 8 | marge pour quitter un état |
 | Filtrage (`alpha`) | 32/256 | moyenne exponentielle |
-| Plage DAC | 160-255, neutre 208 | voir l'avertissement ci-dessus |
+| Sortie PWM | 20 kHz, 11 bits, de 5 % à 95 % | neutre à 50 %, soit 1844 niveaux utiles |
 
 ## 🔧 Développement
 
@@ -274,7 +289,7 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE).
 **Manu512**
 - GitHub : [@Manu512](https://github.com/Manu512)
 - Projet : Détecteur de Stress Filament
-- Date : octobre 2025, refonte septembre 2026 (mode proportionnel, réseau non bloquant)
+- Date : octobre 2025, refonte septembre 2026 (mode proportionnel, réseau non bloquant), octobre 2026 (sortie PWM filtrée)
 
 ## 🔗 Liens utiles
 
