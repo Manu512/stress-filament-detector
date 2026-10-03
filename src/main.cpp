@@ -173,9 +173,19 @@ static void mettreSortiesAuRepos() {
     digitalWrite(OUTPUT_1_PIN, LOW);
 
     if (sortieAnalogique) {
-        // On n'ecrit pas de niveau bas sur GPIO 25 avant de lancer le PWM : la
-        // sortie part au neutre. Le canal est attache avec un rapport cyclique
-        // nul, corrige a l'appel suivant, ce que le filtre RC absorbe.
+        // Reprendre le pad au DAC avant d'y attacher le PWM. Releve du
+        // 2026-10-03 : apres un flash OTA depuis la version DAC, la MMB lisait
+        // 0,958 quel que soit le rapport cyclique, et la sortie n'a suivi qu'une
+        // fois GPIO 25 repasse par un pinMode. Explication retenue : l'etat du
+        // DAC vit dans le domaine RTC, qu'un redemarrage logiciel ne remet pas a
+        // zero, et ledcAttachPin ne rend pas le pad au numerique. Sans ces deux
+        // lignes, passer d'un firmware DAC a celui-ci sans couper l'alimentation
+        // laisse la sortie figee.
+        dacDisable(ANALOG_OUT_PIN);
+        pinMode(ANALOG_OUT_PIN, OUTPUT);
+
+        // Le canal est attache avec un rapport cyclique nul, corrige a l'appel
+        // suivant : le filtre RC absorbe cet instant.
         if (ledcSetup(kCanalPwm, stress::kPwmFreqHz, stress::kPwmBits) == 0) {
             Serial.println("ERREUR: LEDC refuse la frequence/resolution PWM");
         }
