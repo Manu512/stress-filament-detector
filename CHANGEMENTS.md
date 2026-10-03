@@ -5,11 +5,11 @@
 > sont conservées telles qu'elles ont été écrites ; ce qui s'est révélé faux y est
 > corrigé sur place, avec la date. La section 9 fait le point au 2026-10-03.
 >
-> **Sur cette branche (`sortie-pwm-filtre-rc`), la sortie analogique n'est plus le
-> DAC.** Tout ce que les sections 2 à 7 disent du DAC au présent (256 puis 96
+> **Depuis le 2026-10-03, sur `main`, la sortie analogique n'est plus le DAC.**
+> Tout ce que les sections 2 à 7 disent du DAC au présent (256 puis 96
 > niveaux, `kDacMin`, `deltaToDac`, champ `dac`, bornes 0.623 / 0.795 / 0.969,
 > « aucun changement de câblage ») décrit la variante `sortie-dac-direct`. L'état
-> réel de cette branche est en section 10.
+> réel est en section 10.
 
 Branche `feat/proportionnel-et-wifi-resilient`. Deux chantiers indépendants, dans
 un ordre choisi : la fiabilité d'abord, parce qu'elle peut planter une impression
@@ -258,7 +258,7 @@ simplement les nouveaux champs.
 > ces champs. La liste ci-dessus oubliait le champ `wifi_rssi`, que le module envoie
 > mais que l'interface n'affiche pas, la commande `set_neutral`, et la clé
 > `log_category`.
-> Sur cette branche, le champ `dac` est remplacé par `pwm` et `pwm_full`.
+> Sur `main`, le champ `dac` est remplacé par `pwm` et `pwm_full`.
 
 ## 6. Mesures relevées sur la machine le 2026-09-24
 
@@ -351,7 +351,7 @@ Si la pleine échelle devenait nécessaire, la solution est du **PWM sur GPIO 25
 filtré par 1 kΩ + 4,7 µF — un GPIO est push-pull, le tirage devient sans objet.
 Écarté pour l'instant : aucun problème mesuré ne le justifie.
 
-> **2026-10-03.** Essayé et adopté sur cette branche, avec 10 µF : voir la section 10.
+> **2026-10-03.** Essayé et adopté, avec 10 µF : voir la section 10.
 
 ### Bornes relevées, écrites dans `mmu_hardware.cfg`
 
@@ -411,8 +411,9 @@ radio sur l'alimentation USB du poste. En service le module est alimenté par le
 
 - `sortie-dac-direct` : le firmware décrit par les sections 1 à 8. Sortie DAC
   160..255, reliée directement à l'entrée STP8.
-- `sortie-pwm-filtre-rc` : la sortie analogique passe en PWM, filtré par 1 kΩ et
-  10 µF. C'est le firmware en service sur la machine depuis le 2026-10-03.
+- `main`, depuis la fusion de `sortie-pwm-filtre-rc` le 2026-10-03 : la sortie
+  analogique passe en PWM, filtré par 1 kΩ et 10 µF. C'est le firmware en service
+  sur la machine.
 
 Les bornes Klipper ne sont pas les mêmes d'une variante à l'autre. Le filtre est
 maintenant soudé sur la machine : y remettre le firmware DAC impose de remesurer
