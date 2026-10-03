@@ -19,7 +19,7 @@ Le module fournit cette mesure à Happy Hare de deux façons, au choix :
 
 On passe d'un mode à l'autre depuis l'interface web, sans reflasher l'ESP32, puis on adapte la config Klipper. En mode analogique, GPIO 26 continue de signaler la compression, mais le signal de tension du type D n'existe plus : GPIO 25 porte la sortie analogique. En type P, Happy Hare règle en continu la vitesse du moteur du MMU (autotune par filtre de Kalman étendu), au lieu de la faire osciller entre deux niveaux.
 
-**Deux variantes de la sortie analogique.** Cette branche (`sortie-dac-direct`) utilise le DAC de l'ESP32, relié directement à la carte MMU : aucun composant à ajouter, mais une plage limitée (voir l'avertissement plus bas). La branche `sortie-pwm-filtre-rc` le remplace par un PWM filtré par une résistance et un condensateur : la plage lue par Klipper est environ 2,4 fois plus large et compte 1844 niveaux au lieu de 96. Les deux variantes n'ont ni le même câblage ni les mêmes bornes Klipper.
+**Deux variantes de la sortie analogique.** Cette branche (`sortie-dac-direct`) utilise le DAC de l'ESP32, relié directement à la carte MMU : aucun composant à ajouter, mais une plage limitée (voir l'avertissement plus bas). La branche principale (`main`) le remplace par un PWM filtré par une résistance et un condensateur : la plage lue par Klipper est environ 2,4 fois plus large et compte 1844 niveaux au lieu de 96. Les deux variantes n'ont ni le même câblage ni les mêmes bornes Klipper.
 
 **🔬 Basé sur :** ce projet reprend et améliore le [Voron ERCF Filament Stress Sensor](https://www.printables.com/model/803180-voron-ercf-filament-stress-sensor) de **jmillerfo**. Il est adapté à l'ESP32, avec une interface web et une intégration Happy Hare.
 

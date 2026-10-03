@@ -402,8 +402,9 @@ radio sur l'alimentation USB du poste. En service le module est alimenté par le
 
 - `sortie-dac-direct` : le firmware décrit par les sections 1 à 8. Sortie DAC
   160..255, reliée directement à l'entrée STP8.
-- `sortie-pwm-filtre-rc` : la sortie analogique passe en PWM, filtré par 1 kΩ et
-  10 µF. C'est le firmware en service sur la machine depuis le 2026-10-03.
+- `main`, depuis la fusion de `sortie-pwm-filtre-rc` le 2026-10-03 : la sortie
+  analogique passe en PWM, filtré par 1 kΩ et 10 µF. C'est le firmware en service
+  sur la machine.
 
 Les bornes Klipper ne sont pas les mêmes d'une variante à l'autre. Le filtre est
 maintenant soudé sur la machine : y remettre le firmware DAC impose de remesurer
