@@ -10,14 +10,14 @@
 
 Capteur de position du buffer filament, entre le MMU et l'extrudeur, pour imprimantes 3D. Deux capteurs Hall SS49E sont lus en **différentiel** par un ESP32. Le module en tire une mesure **proportionnelle** : de la tension (le filament tire) à la compression (le filament pousse), en passant par le neutre.
 
-Le module fournit cette mesure à Happy Hare de deux façons, **en même temps** :
+Le module fournit cette mesure à Happy Hare de deux façons, au choix :
 
-| Sortie | Broche | Mode Happy Hare | Usage |
+| Mode du module | GPIO 25 | GPIO 26 | Mode Happy Hare |
 |---|---|---|---|
-| Analogique (DAC) | GPIO 25 | **type P** (proportionnel) | mode recommandé, par défaut |
-| Tout ou rien | GPIO 26 | type D (tension/compression) | secours |
+| Analogique, par défaut | position continue (DAC) | compression, en tout ou rien | **type P** (proportionnel), recommandé |
+| Tout ou rien | tension | compression | type D, en secours |
 
-Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas besoin de reflasher l'ESP32. En type P, Happy Hare règle en continu la vitesse du moteur du MMU (autotune par filtre de Kalman étendu), au lieu de la faire osciller entre deux niveaux.
+On passe d'un mode à l'autre depuis l'interface web, sans reflasher l'ESP32, puis on adapte la config Klipper. En mode analogique, GPIO 26 continue de signaler la compression, mais le signal de tension du type D n'existe plus : GPIO 25 porte la sortie analogique. En type P, Happy Hare règle en continu la vitesse du moteur du MMU (autotune par filtre de Kalman étendu), au lieu de la faire osciller entre deux niveaux.
 
 **Deux variantes de la sortie analogique.** Cette branche (`sortie-dac-direct`) utilise le DAC de l'ESP32, relié directement à la carte MMU : aucun composant à ajouter, mais une plage limitée (voir l'avertissement plus bas). La branche `sortie-pwm-filtre-rc` le remplace par un PWM filtré par une résistance et un condensateur : la plage lue par Klipper est environ 2,4 fois plus large et compte 1844 niveaux au lieu de 96. Les deux variantes n'ont ni le même câblage ni les mêmes bornes Klipper.
 
@@ -29,7 +29,7 @@ Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas b
 
 ### Interface Web
 ![Interface Web](docs/interface_web.png)
-*Interface web avec monitoring temps réel et contrôles de calibration*
+*Interface d'origine, octobre 2025. L'interface actuelle y ajoute la mesure différentielle, la sortie proportionnelle, les réglages et le réseau : cette capture n'a pas été refaite.*
 
 ### Capteur ESP32
 ![Capteur ESP32](docs/ERFC_capteur_ESP32.PNG)
@@ -46,7 +46,7 @@ Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas b
 - 🧮 **Mesure différentielle** : la différence entre les deux capteurs annule la dérive thermique et les variations d'alimentation
 - 🛡️ **La mesure ne dépend jamais du réseau** : le Wi-Fi ne bloque jamais la boucle de mesure
 - 📶 **Wi-Fi sans recompilation** : identifiants stockés en mémoire NVS, point d'accès de repli pour les saisir
-- 📊 **Interface web temps réel** : WebSocket, calibration, réglages, RSSI Wi-Fi
+- 📊 **Interface web temps réel** : WebSocket, calibration, réglages, état du Wi-Fi
 - 🔄 **Mise à jour OTA**
 - 🧪 **Logique testée sur PC** : tests unitaires natifs, sans matériel
 
@@ -144,29 +144,35 @@ Avant d'utiliser l'OTA, adaptez `upload_port` dans `platformio.ini` au nom ou à
 ### 3. Configurer le Wi-Fi
 Il n'y a plus d'identifiants à compiler, ni de fichier `config_private.h`.
 
-1. Au premier démarrage, sans identifiants enregistrés, le module ouvre un **point d'accès** `stress-filament-XXXXXX`.
-2. Connectez-vous-y, ouvrez l'interface web à l'adresse IP du point d'accès, puis saisissez votre SSID et votre mot de passe.
-3. Les identifiants sont enregistrés en NVS, et le module rejoint votre réseau sous le nom d'hôte `stress-filament`.
+1. Au démarrage, le module tente toujours de se connecter : avec les identifiants enregistrés, ou à défaut avec ceux que le pilote Wi-Fi de l'ESP32 a gardés d'une configuration précédente.
+2. Après 3 tentatives de 15 s espacées de 20 s, soit environ une minute et demie, il ouvre un **point d'accès** nommé `stress-filament-` suivi de la fin de son adresse MAC en hexadécimal. Ce point d'accès est ouvert, sans mot de passe.
+3. Connectez-vous-y, ouvrez l'interface web à l'adresse IP du point d'accès, puis saisissez votre SSID et votre mot de passe.
+4. Les identifiants sont enregistrés en NVS, et le module rejoint votre réseau sous le nom d'hôte `stress-filament`.
 
-Après 3 échecs de connexion consécutifs, le module repasse en point d'accès. Pendant tout ce temps, **la mesure et les sorties continuent de fonctionner.**
+Une fois en point d'accès, le module y reste jusqu'à la saisie de nouveaux identifiants ou jusqu'à son redémarrage. S'il perd le réseau en cours de route, il retente la connexion selon le même cycle. Pendant tout ce temps, **la mesure et les sorties continuent de fonctionner.**
 
 ## 🎮 Utilisation
 
 ### Interface web
-Accessible à l'adresse IP du module, ou par son nom d'hôte si votre réseau le résout : par exemple `http://stress-filament.lan`. Elle affiche en temps réel les deux capteurs, l'écart entre eux, la valeur DAC, l'état, le niveau de tension et le RSSI Wi-Fi.
+Accessible à l'adresse IP du module, ou par son nom d'hôte si votre réseau le résout : par exemple `http://stress-filament.lan`. Elle affiche en temps réel les deux capteurs et leur zone, l'écart filtré entre eux, la valeur DAC, l'état, le niveau de tension, le mode de sortie, le réseau et l'adresse IP.
+
+Le RSSI Wi-Fi n'est pas affiché : il n'existe que dans le statut WebSocket (`wifi_rssi`). En mode analogique, la ligne « Sortie 2 (GPIO 25) » reste à LOW : la valeur de la sortie se lit dans « Sortie DAC ».
 
 ### Calibration
 Les valeurs sont **en millivolts**, lues avec `analogReadMilliVolts()`. Tant qu'aucune calibration valide n'est enregistrée, la mesure n'a pas de référence.
 
-| Commande WebSocket | Effet |
-|---|---|
-| `capture_neutral` | prend la position actuelle comme neutre |
-| `capture_span` | prend la position actuelle comme pleine échelle |
-| `set_neutral` | impose le neutre (`n1`, `n2`, et `span` en option) |
-| `save_simple_calibration` | règle la bande morte, l'hystérésis, l'échelle et le filtrage |
-| `reset_calibration` | revient aux valeurs par défaut |
-| `set_analog_output` | active ou désactive la sortie analogique |
-| `set_wifi` / `forget_wifi` | enregistre ou efface les identifiants Wi-Fi |
+| Commande WebSocket | Paramètres | Effet |
+|---|---|---|
+| `capture_neutral` | | prend la position actuelle comme neutre |
+| `capture_span` | | prend l'amplitude actuelle du delta filtré comme pleine échelle ; sans effet si elle ne dépasse pas la bande morte |
+| `set_neutral` | `n1`, `n2`, `span` en option | impose le neutre, et la pleine échelle si elle est fournie ; non enregistré si les valeurs sont incohérentes |
+| `save_simple_calibration` | `deadband_points`, `hysteresis`, `span`, `alpha` | règle la bande morte, l'hystérésis, la pleine échelle et le filtrage ; non enregistré si les valeurs sont incohérentes |
+| `reset_calibration` | | remet le neutre, la pleine échelle, la bande morte et l'hystérésis par défaut, et invalide la calibration ; le filtrage et le mode de sortie sont conservés |
+| `set_analog_output` | `enabled` | active ou désactive la sortie analogique |
+| `set_wifi` | `ssid`, `password` | enregistre les identifiants et lance la connexion |
+| `forget_wifi` | | efface les identifiants enregistrés par le module, sans couper la connexion en cours ; au redémarrage, le pilote Wi-Fi peut encore se reconnecter avec ceux qu'il a gardés |
+
+Trois clés s'envoient sans `cmd` : `send_updates` (active ou coupe l'envoi du statut), `interval_ms` (période d'envoi, 200 ms par défaut) et `log_category` (filtre des messages de journal).
 
 #### Procédure recommandée : par les deux butées
 
@@ -209,8 +215,10 @@ Refaites cette calibration chaque fois que l'aimant est déplacé. S'il n'est pa
 ├── lib/stress_core/        # logique de mesure pure, sans Arduino
 ├── test/test_stress_core/  # tests unitaires (Unity)
 ├── data/                   # interface web (index.html, style.css, script.js)
+├── docs/                   # images de ce README
 ├── platformio.ini          # environnements USB, OTA et tests natifs
-└── CHANGEMENTS.md          # détail de la refonte (réseau fiable, mode proportionnel)
+├── CHANGEMENTS.md          # journal technique : refonte, mesures, erreurs corrigées
+└── LICENSE
 ```
 
 ### Tests

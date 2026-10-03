@@ -1,5 +1,10 @@
 # Refonte : fiabilité réseau et sortie proportionnelle
 
+> **Journal technique.** Les sections 1 à 8 racontent la refonte de septembre 2026,
+> menée sur la branche `feat/proportionnel-et-wifi-resilient`, fusionnée depuis. Elles
+> sont conservées telles qu'elles ont été écrites ; ce qui s'est révélé faux y est
+> corrigé sur place, avec la date. La section 9 fait le point au 2026-10-03.
+
 Branche `feat/proportionnel-et-wifi-resilient`. Deux chantiers indépendants, dans
 un ordre choisi : la fiabilité d'abord, parce qu'elle peut planter une impression
 aujourd'hui, le proportionnel ensuite, qui est un gain.
@@ -205,8 +210,9 @@ calibration. `src/main.cpp` ne fait plus que lire, écrire et servir le web.
 pio test -e native
 ```
 
-21 cas : rejet du mode commun, convergence du filtre, saturation et monotonie du
-DAC, hystérésis, refus d'une calibration incohérente.
+25 cas au 2026-10-03, contre 21 annoncés ici à l'origine : rejet du mode commun,
+convergence du filtre, saturation et monotonie du DAC, hystérésis, refus d'une
+calibration incohérente.
 
 **Deux défauts réels ont été trouvés par ces tests pendant l'écriture :**
 
@@ -240,6 +246,12 @@ Ajouts : `delta`, `span`, `hysteresis`, `alpha`, `dac`, `analog_out`,
 
 L'interface web existante fonctionne donc sans modification ; elle ignore
 simplement les nouveaux champs.
+
+> **Correction du 2026-10-03.** Ce n'est plus vrai : l'interface a été étendue
+> depuis (mesure différentielle, sortie proportionnelle, réglages, réseau) et lit
+> ces champs. La liste ci-dessus oubliait le champ `wifi_rssi`, que le module envoie
+> mais que l'interface n'affiche pas, la commande `set_neutral`, et la clé
+> `log_category`.
 
 ## 6. Mesures relevées sur la machine le 2026-09-24
 
@@ -282,8 +294,6 @@ compression. Trois conséquences :
    `analog_max_compression`, `analog_max_tension` et `analog_neutral_point` sont
    trois réglages distincts. Le mappage DAC du firmware, lui, reste symétrique
    (`±span`) — à revoir si l'asymétrie mesurée s'avère forte.
-
-## 7. Reste à faire
 
 ## 7. Le plancher du DAC — mesuré le 2026-09-24
 
@@ -368,22 +378,82 @@ produisent rigoureusement rien.
 Une **impression avec changement d'outil** : le seul test qui exerce la boucle
 complète, et le seul qui dira si le gain corrigé rend la régulation plus franche.
 
+> **État au 2026-10-03.** Une impression à deux outils (T2 et T5, 304 min) est
+> allée à son terme le 2026-09-26. La qualité de la régulation pendant les
+> changements d'outil n'a pas été consignée dans ce journal.
+
 Optionnel, jamais mesuré : le comportement **moteurs en marche**. Tous les relevés
 ci-dessus ont été faits à l'arrêt. La ligne PB12 porte maintenant un niveau
 analogique lent au milieu d'une carte qui pilote quatre moteurs pas à pas ; un
 coup d'oscilloscope pendant un mouvement lèverait le dernier doute.
 
-**Outils fournis à la racine du projet :**
-
-```
-surveiller.py [duree] [ip]     releve en continu, min/max, span suggere
-commander.py capture_neutral   envoie une commande et montre l'effet
-commander.py capture_span
-commander.py set_analog_output 0|1
-commander.py regler span=153 alpha=32
-```
+> **Correction du 2026-10-03.** Ce passage citait deux scripts « fournis à la racine
+> du projet », `surveiller.py` et `commander.py`. Ils n'ont jamais été ajoutés au
+> dépôt.
 
 **Point à surveiller** : trois redémarrages sur *brownout* au tout premier
 démarrage après flash, plus aucun ensuite. Probablement l'appel de courant de la
 radio sur l'alimentation USB du poste. En service le module est alimenté par le
 5 V de la MMB. Si le phénomène réapparaît, le levier est `WiFi.setTxPower()`.
+
+## 9. Point au 2026-10-03
+
+### Deux variantes, deux branches
+
+- `sortie-dac-direct` : le firmware décrit par les sections 1 à 8. Sortie DAC
+  160..255, reliée directement à l'entrée STP8.
+- `sortie-pwm-filtre-rc` : la sortie analogique passe en PWM, filtré par 1 kΩ et
+  10 µF. C'est le firmware en service sur la machine depuis le 2026-10-03.
+
+Les bornes Klipper ne sont pas les mêmes d'une variante à l'autre. Le filtre est
+maintenant soudé sur la machine : y remettre le firmware DAC impose de remesurer
+ses bornes, celles de la section 7 ayant été relevées sans résistance en série.
+
+### Calibration par les deux butées
+
+La section 6 concluait que le neutre « ne peut se capturer que filament chargé ».
+En pratique il se calcule : c'est le milieu des deux butées mécaniques. Relevé du
+2026-10-03, sans filament :
+
+```
+butee compression (repos)   S1 1753 mV   S2 1607 mV   S1-S2 = +146
+butee tension (tenue)       S1 1662 mV   S2 1770 mV   S1-S2 = -108
+milieu                      S1 1707,5    S2 1688,5    course +-127
+```
+
+Envoyé au module par `set_neutral` : `n1 = 1708`, `n2 = 1689`, `span = 125`, soit
+127 moins 2 unités de bruit, pour que les butées saturent franchement la sortie.
+
+La calibration précédente (1702 / 1683, `span` 134) avait le même écart S1−S2 au
+neutre, 19 : elle était centrée. Seule sa pleine échelle était trop large de 5 %,
+et les butées ne donnaient que ±0,95.
+
+Par rapport au relevé du 2026-09-24 (S1 de 1625 à 1754 mV, S2 de 1567 à 1770 mV,
+amplitude du delta 276), la course mesurée ici est plus courte : 254. La cause
+n'est pas établie. Le balayage à la main de septembre a pu dépasser les butées
+relevées ici, ou l'aimant a pu bouger entre-temps.
+
+### Incident du 2026-10-03
+
+Impression mono-filament (T2) avec le firmware DAC. Faits relevés dans `mmu.log`
+et sur la machine :
+
+- 09:55, 09:56 et 10:00 : FlowGuard déclenche trois fois, « Compression stuck »
+  après 164 à 213 mm de mouvement et 40 à 41 mm de correction
+  (`flowguard_max_relief: 40`).
+- La distance de rotation corrigée de la porte, stable vers 24,9 pendant la
+  première couche, monte à 30,9 en moins de trois minutes avant le premier arrêt.
+- `ADJUST_TENSION`, servo baissé : 13,8 mm de recul commandés au pignon, 8,7 mm
+  comptés par l'encodeur, et la lecture du capteur ne bouge pas (0,87 à 0,89).
+- Le filament est retrouvé cassé dans le bowden.
+- Après réparation, l'impression reprend et va à son terme (225 min). Sur 45 s, la
+  lecture oscille alors de −0,67 à +0,52, médiane −0,51.
+
+**La cause n'est pas établie.** Une casse dans le bowden alors que le capteur lit
+une compression fait penser à une lecture fausse, mais rien ne l'a démontré. Le
+même fichier était allé à son terme le 2026-09-25. L'aimant du buffer a été bloqué
+mécaniquement dans la foulée, par précaution, et la calibration refaite comme
+ci-dessus.
+
+L'oscillation de ±0,6 ne vient pas de la calibration, qui était centrée. Son
+origine n'a pas été cherchée.
