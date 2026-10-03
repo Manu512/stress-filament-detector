@@ -2,9 +2,11 @@
 
 // Variables globales
 let ws = null;
-let neutralRaw1 = 2000;
-let neutralRaw2 = 1993;
-let deadbandPoints = 8;
+// Valeurs par defaut du firmware, en millivolts. Elles sont remplacees des la
+// premiere trame recue du module.
+let neutralRaw1 = 1751;
+let neutralRaw2 = 1639;
+let deadbandPoints = 16;
 
 // Initialisation
 document.addEventListener('DOMContentLoaded', function() {
@@ -111,8 +113,15 @@ function updateUI(data) {
   if (data.output2 !== undefined) {
     const output2El = document.getElementById('output2');
     if (output2El) {
-      output2El.textContent = data.output2 ? 'HIGH' : 'LOW';
-      output2El.className = data.output2 ? 'output-value high' : 'output-value low';
+      // En mode analogique GPIO 25 ne porte pas un niveau logique : afficher
+      // LOW serait faux.
+      if (data.analog_out) {
+        output2El.textContent = 'PWM';
+        output2El.className = 'output-value low';
+      } else {
+        output2El.textContent = data.output2 ? 'HIGH' : 'LOW';
+        output2El.className = data.output2 ? 'output-value high' : 'output-value low';
+      }
     }
   }
   
@@ -144,6 +153,9 @@ function updateUI(data) {
   
   if (data.neutral_zone !== undefined) {
     deadbandPoints = data.neutral_zone;
+    const zoneTampon = document.getElementById('zoneTampon');
+    if (zoneTampon) zoneTampon.textContent = `±${deadbandPoints}`;
+    updateZoneStatus();
   }
 }
 
@@ -307,9 +319,9 @@ function majMesure(data) {
     const e = document.getElementById('deltaSpan');
     if (e) e.textContent = `pleine echelle ±${data.span}`;
   }
-  if (data.dac !== undefined) {
-    const e = document.getElementById('dac');
-    if (e) e.textContent = data.dac;
+  if (data.pwm !== undefined && data.pwm_full) {
+    const e = document.getElementById('pwm');
+    if (e) e.textContent = `${(100 * data.pwm / data.pwm_full).toFixed(1)} %`;
   }
   if (data.tension_permille !== undefined) {
     const e = document.getElementById('tensionLevel');

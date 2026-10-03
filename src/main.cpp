@@ -5,7 +5,7 @@
 // simultanement :
 //
 //   - deux sorties tout ou rien      -> Happy Hare type D (tension/compression)
-//   - une sortie analogique (DAC)    -> Happy Hare type P (proportionnel)
+//   - une sortie analogique (PWM filtre) -> Happy Hare type P (proportionnel)
 //
 // Les deux coexistent : on bascule cote Klipper en changeant la config, sans
 // reflasher. Type P donne a Happy Hare un AutoTune par EKF au lieu du mode
@@ -37,17 +37,21 @@ using stress::State;
 
 #define SENSOR_1_PIN 32   // ADC1, capteur Hall S1
 #define SENSOR_2_PIN 33   // ADC1, capteur Hall S2
-#define OUTPUT_1_PIN 26   // DAC2 - tout ou rien (compression) OU sortie analogique
-#define OUTPUT_2_PIN 25   // DAC1 - tout ou rien (tension)
+#define OUTPUT_1_PIN 26   // tout ou rien (compression)
+#define OUTPUT_2_PIN 25   // tout ou rien (tension) OU sortie analogique
 
-// GPIO 25 et 26 sont les deux seules broches DAC de l'ESP32. La version
-// d'origine les utilisait deja, en numerique : le passage au proportionnel ne
-// demande donc aucun changement de cablage cote module.
+// OUTPUT_2_PIN (GPIO 25) porte l'analogique, OUTPUT_1_PIN reste numerique.
+// Ainsi une seule des deux fonctions est perdue, et le mode type D reste
+// utilisable en secours sur la sortie restante.
 //
-// Choix par defaut : OUTPUT_2_PIN (GPIO 25) porte l'analogique, OUTPUT_1_PIN
-// reste numerique. Ainsi une seule des deux fonctions est perdue, et le mode
-// type D reste utilisable en secours sur la sortie restante.
+// L'analogique est un PWM, et non plus le DAC : il EXIGE le filtre RC (1 kOhm
+// en serie, 10 uF vers la masse) entre GPIO 25 et le cable. Sans lui, la MMB
+// echantillonnerait un signal carre. Voir stress_core.h pour le pourquoi.
 #define ANALOG_OUT_PIN OUTPUT_2_PIN
+
+// Canal LEDC de la sortie analogique. Le 0 est libre : rien d'autre dans ce
+// firmware n'utilise LEDC.
+constexpr uint8_t kCanalPwm = 0;
 
 static const char* kHostname   = "stress-filament";
 static const char* kApPassword = "";   // point d'acces ouvert ; renseigner pour proteger
@@ -62,14 +66,14 @@ static int32_t  deltaFiltre = 0;
 static State    etatCourant = State::Neutral;
 static int32_t  dernierRaw1 = 0;
 static int32_t  dernierRaw2 = 0;
-static uint8_t  dernierDac  = stress::kDacNeutral;
+static uint16_t dernierDuty = stress::kPwmNeutral;
 
 // Sortie analogique active. Quand elle l'est, OUTPUT_2_PIN porte une tension
 // continue et ne peut plus servir de sortie logique.
 static bool     sortieAnalogique = true;
 
 // Constante de filtrage, en 1/256. 32 donne une reponse douce sans latence
-// perceptible a 20 Hz d'echantillonnage.
+// perceptible a 25 Hz de mesure (200 Hz de lecture brute, moyennee par 8).
 static uint16_t alphaQ8 = 32;
 
 static Preferences prefs;
@@ -152,34 +156,49 @@ static void logToClients(const String& msg, LogCategory cat = CAT_DBG) {
 
 static void appliquerSorties(int32_t delta, State etat) {
     if (sortieAnalogique) {
-        dernierDac = stress::deltaToDac(delta, cal);
-        dacWrite(ANALOG_OUT_PIN, dernierDac);
+        dernierDuty = stress::deltaToDuty(delta, cal);
+        ledcWrite(kCanalPwm, dernierDuty);
         // La sortie restante continue de signaler la compression, ce qui
         // permet de garder un endstop de homing extrudeur cote Klipper.
         digitalWrite(OUTPUT_1_PIN, etat == State::Compression ? HIGH : LOW);
     } else {
         digitalWrite(OUTPUT_1_PIN, etat == State::Compression ? HIGH : LOW);
         digitalWrite(OUTPUT_2_PIN, etat == State::Tension     ? HIGH : LOW);
-        dernierDac = stress::kDacNeutral;
+        dernierDuty = stress::kPwmNeutral;
     }
 }
 
 static void mettreSortiesAuRepos() {
-    if (!sortieAnalogique) {
-        // Sur ESP32, une broche passee en DAC reste pilotee par le peripherique
-        // DAC : un pinMode/digitalWrite ensuite ne reprend PAS la main sur le
-        // pad. Sans dacDisable(), GPIO 25 resterait a la derniere tension
-        // ecrite (environ 1,65 V au neutre) et Happy Hare verrait un niveau
-        // indetermine au lieu d'une sortie logique propre.
-        dacDisable(ANALOG_OUT_PIN);
-    }
-
     pinMode(OUTPUT_1_PIN, OUTPUT);
-    pinMode(OUTPUT_2_PIN, OUTPUT);
     digitalWrite(OUTPUT_1_PIN, LOW);
-    digitalWrite(OUTPUT_2_PIN, LOW);
 
-    if (sortieAnalogique) dacWrite(ANALOG_OUT_PIN, stress::kDacNeutral);
+    if (sortieAnalogique) {
+        // Reprendre le pad au DAC avant d'y attacher le PWM. Releve du
+        // 2026-10-03 : apres un flash OTA depuis la version DAC, la MMB lisait
+        // 0,958 quel que soit le rapport cyclique, et la sortie n'a suivi qu'une
+        // fois GPIO 25 repasse par un pinMode. Explication retenue : l'etat du
+        // DAC vit dans le domaine RTC, qu'un redemarrage logiciel ne remet pas a
+        // zero, et ledcAttachPin ne rend pas le pad au numerique. Sans ces deux
+        // lignes, passer d'un firmware DAC a celui-ci sans couper l'alimentation
+        // laisse la sortie figee.
+        dacDisable(ANALOG_OUT_PIN);
+        pinMode(ANALOG_OUT_PIN, OUTPUT);
+
+        // Le canal est attache avec un rapport cyclique nul, corrige a l'appel
+        // suivant : le filtre RC absorbe cet instant.
+        if (ledcSetup(kCanalPwm, stress::kPwmFreqHz, stress::kPwmBits) == 0) {
+            Serial.println("ERREUR: LEDC refuse la frequence/resolution PWM");
+        }
+        ledcAttachPin(ANALOG_OUT_PIN, kCanalPwm);
+        ledcWrite(kCanalPwm, stress::kPwmNeutral);
+        dernierDuty = stress::kPwmNeutral;
+    } else {
+        // Retour en tout ou rien : on rend explicitement le pad a la logique
+        // avant de l'ecrire, pour que GPIO 25 ne reste pas sur le PWM.
+        ledcDetachPin(ANALOG_OUT_PIN);
+        pinMode(OUTPUT_2_PIN, OUTPUT);
+        digitalWrite(OUTPUT_2_PIN, LOW);
+    }
 }
 
 // --------------------------------------------------------------------------
@@ -246,7 +265,8 @@ static void notifierClients() {
     doc["span"]             = cal.span;
     doc["hysteresis"]       = cal.hysteresis;
     doc["alpha"]            = alphaQ8;
-    doc["dac"]              = dernierDac;
+    doc["pwm"]              = dernierDuty;
+    doc["pwm_full"]         = stress::kPwmFull;
     doc["analog_out"]       = sortieAnalogique;
     doc["tension_permille"] = stress::tensionLevelPermille(deltaFiltre, cal);
     const net::Status& n = net::status();
@@ -284,13 +304,17 @@ static void traiterCommande(JsonDocument& doc) {
             // determine donc comme le milieu mecanique des deux butees, ce qui
             // est objectif et reproductible, au lieu de le capturer a la main.
             if (doc["n1"].is<int>() && doc["n2"].is<int>()) {
-                cal.neutral1 = doc["n1"].as<int>();
-                cal.neutral2 = doc["n2"].as<int>();
-                if (doc["span"].is<int>()) cal.span = doc["span"].as<int>();
-                deltaFiltre = 0;
-                etatCourant = State::Neutral;
-                calValide = cal.isValid();
-                if (calValide) {
+                // On valide une copie avant de toucher a la calibration en
+                // service : des valeurs refusees ne la remplacent pas, meme
+                // en memoire vive.
+                stress::Calibration candidat = cal;
+                candidat.neutral1 = doc["n1"].as<int>();
+                candidat.neutral2 = doc["n2"].as<int>();
+                if (doc["span"].is<int>()) candidat.span = doc["span"].as<int>();
+                if (stress::assignIfValid(cal, candidat)) {
+                    deltaFiltre = 0;
+                    etatCourant = State::Neutral;
+                    calValide   = true;
                     enregistrerCalibration();
                     logToClients("Neutre impose: " + String(cal.neutral1) + "/" +
                                  String(cal.neutral2) + ", span " + String(cal.span), CAT_OUTPUT);
@@ -301,8 +325,8 @@ static void traiterCommande(JsonDocument& doc) {
 
         } else if (cmd == "capture_span") {
             // A executer buffer pousse a fond d'un cote : l'amplitude mesuree
-            // devient la pleine echelle. Sans cela, la conversion DAC n'a pas
-            // d'echelle de reference.
+            // devient la pleine echelle. Sans cela, la conversion analogique
+            // n'a pas d'echelle de reference.
             const int32_t amplitude = deltaFiltre < 0 ? -deltaFiltre : deltaFiltre;
             if (amplitude > cal.neutral_zone) {
                 cal.span  = amplitude;
@@ -314,13 +338,21 @@ static void traiterCommande(JsonDocument& doc) {
             }
 
         } else if (cmd == "save_simple_calibration") {
-            if (doc["deadband_points"].is<int>()) cal.neutral_zone = doc["deadband_points"].as<int>();
-            if (doc["hysteresis"].is<int>())      cal.hysteresis   = doc["hysteresis"].as<int>();
-            if (doc["span"].is<int>())            cal.span         = doc["span"].as<int>();
-            if (doc["alpha"].is<int>())           alphaQ8          = doc["alpha"].as<int>();
-            calValide = cal.isValid();
-            if (!calValide) logToClients("Calibration refusee: valeurs incoherentes", CAT_OUTPUT);
-            else            enregistrerCalibration();
+            // Meme principe que set_neutral : on valide une copie, et rien
+            // n'est applique si l'ensemble est incoherent.
+            stress::Calibration candidat = cal;
+            int32_t alpha = alphaQ8;
+            if (doc["deadband_points"].is<int>()) candidat.neutral_zone = doc["deadband_points"].as<int>();
+            if (doc["hysteresis"].is<int>())      candidat.hysteresis   = doc["hysteresis"].as<int>();
+            if (doc["span"].is<int>())            candidat.span         = doc["span"].as<int>();
+            if (doc["alpha"].is<int>())           alpha                 = doc["alpha"].as<int>();
+            if (stress::isValidAlpha(alpha) && stress::assignIfValid(cal, candidat)) {
+                alphaQ8   = static_cast<uint16_t>(alpha);
+                calValide = true;
+                enregistrerCalibration();
+            } else {
+                logToClients("Calibration refusee: valeurs incoherentes", CAT_OUTPUT);
+            }
 
         } else if (cmd == "set_analog_output") {
             sortieAnalogique = doc["enabled"].as<bool>();

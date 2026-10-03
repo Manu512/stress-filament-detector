@@ -10,14 +10,16 @@
 
 Capteur de position du buffer filament, entre le MMU et l'extrudeur, pour imprimantes 3D. Deux capteurs Hall SS49E sont lus en **différentiel** par un ESP32. Le module en tire une mesure **proportionnelle** : de la tension (le filament tire) à la compression (le filament pousse), en passant par le neutre.
 
-Le module fournit cette mesure à Happy Hare de deux façons, **en même temps** :
+Le module fournit cette mesure à Happy Hare de deux façons, au choix :
 
-| Sortie | Broche | Mode Happy Hare | Usage |
+| Mode du module | GPIO 25 | GPIO 26 | Mode Happy Hare |
 |---|---|---|---|
-| Analogique (DAC) | GPIO 25 | **type P** (proportionnel) | mode recommandé, par défaut |
-| Tout ou rien | GPIO 26 | type D (tension/compression) | secours |
+| Analogique, par défaut | position continue (PWM filtré) | compression, en tout ou rien | **type P** (proportionnel), recommandé |
+| Tout ou rien | tension | compression | type D, en secours |
 
-Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas besoin de reflasher l'ESP32. En type P, Happy Hare règle en continu la vitesse du moteur du MMU (autotune par filtre de Kalman étendu), au lieu de la faire osciller entre deux niveaux.
+On passe d'un mode à l'autre depuis l'interface web, sans reflasher l'ESP32, puis on adapte la config Klipper. En mode analogique, GPIO 26 continue de signaler la compression, mais le signal de tension du type D n'existe plus : GPIO 25 porte la sortie analogique. En type P, Happy Hare règle en continu la vitesse du moteur du MMU (autotune par filtre de Kalman étendu), au lieu de la faire osciller entre deux niveaux.
+
+**Deux variantes de la sortie analogique.** Cette branche (`sortie-pwm-filtre-rc`) sort un PWM filtré par une résistance et un condensateur, à souder côté module : la plage lue par Klipper est environ 2,4 fois plus large qu'avec le DAC et compte 1844 niveaux au lieu de 96. La branche `sortie-dac-direct` utilise le DAC de l'ESP32, relié directement à la carte MMU : aucun composant à ajouter, mais une plage limitée. Les deux variantes n'ont ni le même câblage ni les mêmes bornes Klipper.
 
 **🔬 Basé sur :** ce projet reprend et améliore le [Voron ERCF Filament Stress Sensor](https://www.printables.com/model/803180-voron-ercf-filament-stress-sensor) de **jmillerfo**. Il est adapté à l'ESP32, avec une interface web et une intégration Happy Hare.
 
@@ -27,7 +29,7 @@ Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas b
 
 ### Interface Web
 ![Interface Web](docs/interface_web.png)
-*Interface web avec monitoring temps réel et contrôles de calibration*
+*Interface de la variante PWM, capturée le 3 octobre 2026 sur la machine de test, buffer au repos en butée de compression. Le bloc Réseau, plus bas dans la page, n'est pas montré.*
 
 ### Capteur ESP32
 ![Capteur ESP32](docs/ERFC_capteur_ESP32.PNG)
@@ -39,12 +41,12 @@ Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas b
 
 ## ✨ Fonctionnalités
 
-- 📏 **Mesure proportionnelle** : sortie analogique pour Happy Hare type P
+- 📏 **Mesure proportionnelle** : sortie analogique pour Happy Hare type P, en PWM filtré sur 1844 niveaux
 - 🎯 **Sortie tout ou rien conservée** : compression, neutre ou tension, avec hystérésis
 - 🧮 **Mesure différentielle** : la différence entre les deux capteurs annule la dérive thermique et les variations d'alimentation
 - 🛡️ **La mesure ne dépend jamais du réseau** : le Wi-Fi ne bloque jamais la boucle de mesure
 - 📶 **Wi-Fi sans recompilation** : identifiants stockés en mémoire NVS, point d'accès de repli pour les saisir
-- 📊 **Interface web temps réel** : WebSocket, calibration, réglages, RSSI Wi-Fi
+- 📊 **Interface web temps réel** : WebSocket, calibration, réglages, état du Wi-Fi
 - 🔄 **Mise à jour OTA**
 - 🧪 **Logique testée sur PC** : tests unitaires natifs, sans matériel
 
@@ -52,6 +54,7 @@ Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas b
 
 - **ESP32 Wemos D1 Mini 32**
 - **2x capteurs Hall SS49E**
+- **1 résistance de 1 kΩ et 1 condensateur de 10 µF**, pour le filtre de la sortie analogique
 - **Alimentation 5V**, fournie par la carte MMU
 
 ## 📐 Schéma de connexion
@@ -60,13 +63,23 @@ Pour passer d'un mode à l'autre, il suffit de changer la config Klipper : pas b
 ESP32 D1 Mini 32
 ├── GPIO 32 ──── Capteur S1 (SS49E)          entrée ADC1
 ├── GPIO 33 ──── Capteur S2 (SS49E)          entrée ADC1
-├── GPIO 25 ──── Sortie ANALOGIQUE (DAC1)    -> Happy Hare type P
-├── GPIO 26 ──── Sortie tout ou rien (DAC2)  -> Happy Hare type D, en secours
+├── GPIO 25 ──── Sortie ANALOGIQUE (PWM)     -> filtre RC -> Happy Hare type P
+├── GPIO 26 ──── Sortie tout ou rien         -> Happy Hare type D, en secours
 ├── 3.3V   ──── VCC capteurs
 └── GND    ──── GND capteurs
 ```
 
-GPIO 25 et 26 sont les deux seules broches DAC de l'ESP32. En mode analogique, GPIO 25 fournit une tension continue et ne sert plus de sortie logique.
+En mode analogique, GPIO 25 sort un PWM à 20 kHz et ne sert plus de sortie logique. **Le filtre RC est obligatoire** : sans lui, la carte MMU échantillonnerait un signal carré.
+
+```
+GPIO 25 ────[ 1 kΩ ]────┬──────── câble vers la carte MMU
+                        │
+                      ══╧══ 10 µF   (+ côté résistance si le condensateur est polarisé)
+                        │
+GND ────────────────────┴──────── GND
+```
+
+Placez la résistance et le condensateur côté module, au plus près de GPIO 25 : le câble transporte alors une tension continue, et non le signal à 20 kHz.
 
 ### 🔗 Connexion à la carte MMU
 
@@ -74,11 +87,15 @@ GPIO 25 et 26 sont les deux seules broches DAC de l'ESP32. En mode analogique, G
 ```
 ESP32 5V                    ──► MMB 5V
 ESP32 GND                   ──► MMB GND
-ESP32 GPIO 25 (analogique)  ──► MMB STP8 (PB12), entrée lue par l'ADC
+ESP32 GPIO 25, après filtre ──► MMB STP8 (PB12), entrée lue par l'ADC
 ESP32 GPIO 26 (secours)     ──► une entrée libre, uniquement pour le type D
 ```
 
-> ⚠️ **Plage DAC limitée à 160-255.** Le DAC de l'ESP32 sait fournir du courant, mais presque pas en absorber. Sur l'entrée STP8 de la MMB, il ne parvient pas à descendre sous environ 1,9 V : en dessous de la valeur 144, la courbe se tasse puis s'inverse. Le firmware n'utilise donc que la plage 160-255, avec le neutre à 208. Les bornes à déclarer dans Klipper dépendent de la carte et de son entrée : **mesurez-les sur votre machine.**
+> ℹ️ **Pourquoi un PWM et non le DAC.** Le DAC de l'ESP32 sait fournir du courant, mais presque pas en absorber. Face au tirage de l'entrée STP8 de la MMB, il ne descendait pas sous environ 1,9 V, ce qui limitait la sortie à 96 niveaux. Une sortie logique tire aussi bien vers la masse que vers le 3,3 V : le PWM filtré descend à 0,46 V sur la machine de test. Le rapport cyclique reste entre 5 % et 95 %, avec le neutre à 50 %.
+
+> ⚠️ **Les tensions lues par Klipper se mesurent.** Elles dépendent du pont formé par la résistance du filtre et le tirage de l'entrée de la carte. Changer la résistance, le condensateur ou la carte impose de relever de nouveau les bornes.
+
+> ⚠️ **Passage depuis le firmware DAC.** Après une mise à jour OTA depuis le firmware DAC, le DAC reste actif sur GPIO 25 et fige la sortie. Ce firmware le désactive donc au démarrage, avant de lancer le PWM. Dans l'autre sens, revenir au firmware DAC impose de remettre ses bornes dans Klipper, et de les remesurer si le filtre reste en place.
 
 ## 🖨️ Intégration Klipper / Happy Hare
 
@@ -90,9 +107,9 @@ sync_feedback_tension_pin:
 sync_feedback_compression_pin:
 sync_feedback_analog_pin: mmu:PB12
 # Tensions lues par la MMB, normalisées entre 0 et 1, relevées sur la machine de test :
-sync_feedback_analog_max_tension: 0.623
-sync_feedback_analog_neutral_point: 0.795
-sync_feedback_analog_max_compression: 0.969
+sync_feedback_analog_max_tension: 0.139
+sync_feedback_analog_neutral_point: 0.550
+sync_feedback_analog_max_compression: 0.961
 ```
 
 **`mmu_parameters.cfg`**, section `[mmu]` :
@@ -102,7 +119,13 @@ sync_feedback_buffer_range: 12      # course utile du buffer, en mm, à mesurer
 sync_feedback_buffer_maxrange: 14   # course maximale, en mm
 ```
 
-Pour relever les bornes, placez le bras du buffer en tension maximale, au neutre, puis en compression maximale. Pour chaque position, notez la valeur lue par Klipper sur `mmu:PB12`. Ne reprenez pas les valeurs ci-dessus telles quelles.
+Ces trois bornes sont les valeurs lues par la carte MMU quand la sortie du module est à son minimum, à son milieu et à son maximum (rapport cyclique de 5 %, 50 % et 95 %). Elles dépendent de la carte et du câblage, pas de la position de l'aimant. Pour les relever :
+
+1. Calibrez d'abord le module (voir [Calibration](#calibration)), pour que les deux butées du buffer saturent la sortie.
+2. Tenez le buffer en butée de tension, puis laissez-le revenir en butée de compression. Dans chaque position, lisez `value_raw` de l'objet `filament_proportional`, par exemple à l'adresse `http://<imprimante>:7125/printer/objects/query?filament_proportional`.
+3. Le neutre est le milieu des deux valeurs : la réponse est linéaire. Sur la machine de test, neuf points relevés de 5 % à 95 % s'écartent de la droite de 0,0017 au plus.
+
+Ne reprenez pas les valeurs ci-dessus telles quelles. Klipper ne lit ces bornes qu'au démarrage : redémarrez-le après les avoir modifiées.
 
 ### Mode tout ou rien (type D), en secours
 
@@ -128,54 +151,74 @@ pip install platformio
 pio run -e wemos_d1_mini32 -t upload      # firmware, par USB
 pio run -e wemos_d1_mini32 -t uploadfs    # interface web (LittleFS)
 
-pio run -e wemos_d1_mini32_ota -t upload  # ensuite, par le réseau (OTA)
+pio run -e wemos_d1_mini32_ota -t upload    # ensuite, firmware par le réseau (OTA)
+pio run -e wemos_d1_mini32_ota -t uploadfs  # et interface web par le réseau
 ```
 Avant d'utiliser l'OTA, adaptez `upload_port` dans `platformio.ini` au nom ou à l'IP de votre module.
 
 ### 3. Configurer le Wi-Fi
 Il n'y a plus d'identifiants à compiler, ni de fichier `config_private.h`.
 
-1. Au premier démarrage, sans identifiants enregistrés, le module ouvre un **point d'accès** `stress-filament-XXXXXX`.
-2. Connectez-vous-y, ouvrez l'interface web à l'adresse IP du point d'accès, puis saisissez votre SSID et votre mot de passe.
-3. Les identifiants sont enregistrés en NVS, et le module rejoint votre réseau sous le nom d'hôte `stress-filament`.
+1. Au démarrage, le module tente toujours de se connecter : avec les identifiants enregistrés, ou à défaut avec ceux que le pilote Wi-Fi de l'ESP32 a gardés d'une configuration précédente.
+2. Après 3 tentatives de 15 s espacées de 20 s, soit environ une minute et demie, il ouvre un **point d'accès** nommé `stress-filament-` suivi de la fin de son adresse MAC en hexadécimal. Ce point d'accès est ouvert, sans mot de passe.
+3. Connectez-vous-y, ouvrez l'interface web à l'adresse IP du point d'accès, puis saisissez votre SSID et votre mot de passe.
+4. Les identifiants sont enregistrés en NVS, et le module rejoint votre réseau sous le nom d'hôte `stress-filament`.
 
-Après 3 échecs de connexion consécutifs, le module repasse en point d'accès. Pendant tout ce temps, **la mesure et les sorties continuent de fonctionner.**
+Une fois en point d'accès, le module y reste jusqu'à la saisie de nouveaux identifiants ou jusqu'à son redémarrage. S'il perd le réseau en cours de route, il retente la connexion selon le même cycle. Pendant tout ce temps, **la mesure et les sorties continuent de fonctionner.**
 
 ## 🎮 Utilisation
 
 ### Interface web
-Accessible à l'adresse IP du module, ou par son nom d'hôte si votre réseau le résout : par exemple `http://stress-filament.lan`. Elle affiche en temps réel les deux capteurs, l'écart entre eux, la valeur DAC, l'état, le niveau de tension et le RSSI Wi-Fi.
+Accessible à l'adresse IP du module, ou par son nom d'hôte si votre réseau le résout : par exemple `http://stress-filament.lan`. Elle affiche en temps réel les deux capteurs et leur zone, l'écart filtré entre eux, le rapport cyclique de la sortie, l'état, le niveau de tension, le mode de sortie, le réseau et l'adresse IP.
+
+Le RSSI Wi-Fi n'est pas affiché : il n'existe que dans le statut WebSocket (`wifi_rssi`). En mode analogique, la ligne « Sortie 2 (GPIO 25) » affiche PWM : la valeur de la sortie se lit dans « Sortie PWM ».
 
 ### Calibration
 Les valeurs sont **en millivolts**, lues avec `analogReadMilliVolts()`. Tant qu'aucune calibration valide n'est enregistrée, la mesure n'a pas de référence.
 
-| Commande WebSocket | Effet |
-|---|---|
-| `capture_neutral` | prend la position actuelle comme neutre |
-| `capture_span` | prend la position actuelle comme pleine échelle |
-| `set_neutral` | impose le neutre (`n1`, `n2`, et `span` en option) |
-| `save_simple_calibration` | règle la bande morte, l'hystérésis, l'échelle et le filtrage |
-| `reset_calibration` | revient aux valeurs par défaut |
-| `set_analog_output` | active ou désactive la sortie analogique |
-| `set_wifi` / `forget_wifi` | enregistre ou efface les identifiants Wi-Fi |
+| Commande WebSocket | Paramètres | Effet |
+|---|---|---|
+| `capture_neutral` | | prend la position actuelle comme neutre |
+| `capture_span` | | prend l'amplitude actuelle du delta filtré comme pleine échelle ; sans effet si elle ne dépasse pas la bande morte |
+| `set_neutral` | `n1`, `n2`, `span` en option | impose le neutre, et la pleine échelle si elle est fournie ; refusé en bloc si les valeurs sont incohérentes, la calibration en service reste alors inchangée |
+| `save_simple_calibration` | `deadband_points`, `hysteresis`, `span`, `alpha` (1 à 256) | règle la bande morte, l'hystérésis, la pleine échelle et le filtrage ; refusé en bloc de la même façon |
+| `reset_calibration` | | remet le neutre, la pleine échelle, la bande morte et l'hystérésis par défaut, et invalide la calibration ; le filtrage et le mode de sortie sont conservés |
+| `set_analog_output` | `enabled` | active ou désactive la sortie analogique |
+| `set_wifi` | `ssid`, `password` | enregistre les identifiants et lance la connexion |
+| `forget_wifi` | | efface les identifiants enregistrés par le module, sans couper la connexion en cours ; au redémarrage, le pilote Wi-Fi peut encore se reconnecter avec ceux qu'il a gardés |
+
+Trois clés s'envoient sans `cmd` : `send_updates` (active ou coupe l'envoi du statut), `interval_ms` (période d'envoi, 200 ms par défaut) et `log_category` (filtre des messages de journal).
+
+#### Procédure recommandée : par les deux butées
+
+Le point neutre de ce buffer n'est pas sa position de repos : le ressort pousse le bras vers la compression. Le capturer à la main avec `capture_neutral` est donc peu reproductible. La méthode recommandée part des deux butées mécaniques :
+
+1. Buffer au repos, donc en butée de compression : relevez S1 et S2 dans l'interface web.
+2. Buffer tenu en butée de tension : relevez de nouveau S1 et S2.
+3. Le neutre de chaque capteur est le milieu de ses deux relevés. La pleine échelle est la moitié de l'écart de `S1 - S2` entre les deux butées, diminuée de quelques unités (l'amplitude du bruit) pour que les butées saturent franchement la sortie.
+4. Envoyez le résultat sur le WebSocket `/ws` : `{"cmd": "set_neutral", "n1": 1708, "n2": 1689, "span": 125}`.
+
+Les valeurs de cet exemple sont celles de la machine de test : butées relevées à 1753 / 1607 mV et à 1662 / 1770 mV, soit une course de ±127 autour du milieu.
+
+Refaites cette calibration chaque fois que l'aimant est déplacé. S'il n'est pas bloqué mécaniquement sur son support, il glisse, et le neutre dérive d'une impression à l'autre.
 
 ### Logique de mesure
 - `delta = (S1 - neutre1) - (S2 - neutre2)`, filtré par une moyenne exponentielle.
 - `delta > 0` : **compression** ; `delta < 0` : **tension**.
-- La sortie analogique est proportionnelle à `delta` sur la plage DAC 160-255.
+- La sortie analogique est proportionnelle à `delta`, de 5 % à 95 % de rapport cyclique.
 - La sortie tout ou rien applique une bande morte et une hystérésis.
 
 ## 📊 Paramètres par défaut
 
 | Paramètre | Valeur | Description |
 |---|---|---|
-| Échantillonnage | 20 Hz | lecture des capteurs |
+| Échantillonnage | 25 Hz | lecture brute à 200 Hz, moyennée par 8 |
 | Neutre S1 / S2 | 1751 / 1639 mV | ordre de grandeur, à calibrer |
 | Pleine échelle (`span`) | 150 | écart correspondant à la pleine échelle |
 | Bande morte | ±16 | demi-largeur de la zone neutre |
 | Hystérésis | 8 | marge pour quitter un état |
 | Filtrage (`alpha`) | 32/256 | moyenne exponentielle |
-| Plage DAC | 160-255, neutre 208 | voir l'avertissement ci-dessus |
+| Sortie PWM | 20 kHz, 11 bits, de 5 % à 95 % | neutre à 50 %, soit 1844 niveaux utiles |
 
 ## 🔧 Développement
 
@@ -187,8 +230,10 @@ Les valeurs sont **en millivolts**, lues avec `analogReadMilliVolts()`. Tant qu'
 ├── lib/stress_core/        # logique de mesure pure, sans Arduino
 ├── test/test_stress_core/  # tests unitaires (Unity)
 ├── data/                   # interface web (index.html, style.css, script.js)
+├── docs/                   # images de ce README
 ├── platformio.ini          # environnements USB, OTA et tests natifs
-└── CHANGEMENTS.md          # détail de la refonte (réseau fiable, mode proportionnel)
+├── CHANGEMENTS.md          # journal technique : refonte, mesures, erreurs corrigées
+└── LICENSE
 ```
 
 ### Tests
@@ -196,6 +241,7 @@ Tout ce qui prend une décision se trouve dans `lib/stress_core` et se teste sur
 ```bash
 pio test -e native
 ```
+Il faut un compilateur C++ sur le PC (`gcc` et `g++`). Sous Windows, installez MinGW ou lancez la commande depuis WSL.
 
 ### Dépendances
 - `ESP32Async/AsyncTCP`
@@ -221,7 +267,7 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE).
 **Configuration de test :**
 - **Imprimante :** Voron 2.4 R2
 - **Contrôleur :** Raspberry Pi 4B (4GB RAM)
-- **Stockage :** HDD USB 1TB
+- **Stockage :** carte SD de 32 Go (à l'origine un HDD USB de 1 To)
 - **Écran :** Waveshare 4.3" avec mod Peek-a-boo display (fbeauKmi)
 - **Carte mère principale :** BTT Octopus Pro V1.1
 - **Interface CAN :** BTT U2C CAN Bus Adapter
@@ -230,28 +276,25 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE).
 - **Hotend :** BambuLab X1C Hotend
 - **Steppers A/B :** TMC5160 (Alimentation 48V)
 - **Steppers autres :** TMC2209 (Alimentation 24V)
-- **Firmware :** Klipper avec Happy Hare MMU
+- **Firmware :** Kalico avec Happy Hare MMU (à l'origine Klipper)
 - **MMU :** Multi-Material Unit avec gestion Happy Hare
 - **Capteurs :** 2x SS49E Hall sensors positionnés sur le chemin filament
 
 **Retour d'expérience :**
-- Détection ultra-précise des micro-contraintes
-- Intégration transparente avec Happy Hare
-- Monitoring temps réel très utile pour le tuning
-- Calibration simple et efficace
-- Compatible avec architecture CAN Bus complète (U2C + MMB CAN + SB2209)
-- Fonctionne parfaitement avec BambuLab Hotend haute débit
-- Testé avec TMC5160 48V sur axes A/B pour performances maximales
-- Stabilité excellente même à haute vitesse d'impression
-- Interface web accessible depuis écran Waveshare 4.3" (mod Peek-a-boo)
-- Stockage 1TB parfait pour logs longue durée et timelapses
+- Le mode proportionnel (type P) tourne sur cette machine avec Happy Hare v3 depuis le 24 septembre 2026. Plusieurs impressions d'une heure et demie à cinq heures sont allées à leur terme.
+- Le 3 octobre 2026, une impression s'est arrêtée trois fois sur une détection de bouchon de FlowGuard, puis le filament a été retrouvé cassé dans le bowden. La cause n'est pas établie : voir `CHANGEMENTS.md`, section 9.
+- L'aimant du buffer doit être bloqué mécaniquement sur son support, et la calibration refaite par les deux butées chaque fois qu'il bouge.
+- La sortie PWM filtrée est en service depuis le 3 octobre 2026 : son comportement dans la durée reste à observer.
+- Le reset matériel de l'ESP32 depuis Klipper (fil vers la broche RST) a été essayé et ne fonctionne pas en l'état : voir `CHANGEMENTS.md`, section 10.
+- L'interface web sert surtout au réglage : lecture des deux capteurs en direct, et calibration.
+- Jamais mesuré : le comportement de la ligne analogique moteurs en marche, à l'oscilloscope.
 
 ## 👨‍💻 Auteur
 
 **Manu512**
 - GitHub : [@Manu512](https://github.com/Manu512)
 - Projet : Détecteur de Stress Filament
-- Date : octobre 2025, refonte septembre 2026 (mode proportionnel, réseau non bloquant)
+- Date : octobre 2025, refonte septembre 2026 (mode proportionnel, réseau non bloquant), octobre 2026 (sortie PWM filtrée)
 
 ## 🔗 Liens utiles
 

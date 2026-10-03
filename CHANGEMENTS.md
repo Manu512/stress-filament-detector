@@ -1,5 +1,16 @@
 # Refonte : fiabilité réseau et sortie proportionnelle
 
+> **Journal technique.** Les sections 1 à 8 racontent la refonte de septembre 2026,
+> menée sur la branche `feat/proportionnel-et-wifi-resilient`, fusionnée depuis. Elles
+> sont conservées telles qu'elles ont été écrites ; ce qui s'est révélé faux y est
+> corrigé sur place, avec la date. La section 9 fait le point au 2026-10-03.
+>
+> **Sur cette branche (`sortie-pwm-filtre-rc`), la sortie analogique n'est plus le
+> DAC.** Tout ce que les sections 2 à 7 disent du DAC au présent (256 puis 96
+> niveaux, `kDacMin`, `deltaToDac`, champ `dac`, bornes 0.623 / 0.795 / 0.969,
+> « aucun changement de câblage ») décrit la variante `sortie-dac-direct`. L'état
+> réel de cette branche est en section 10.
+
 Branche `feat/proportionnel-et-wifi-resilient`. Deux chantiers indépendants, dans
 un ordre choisi : la fiabilité d'abord, parce qu'elle peut planter une impression
 aujourd'hui, le proportionnel ensuite, qui est un gain.
@@ -205,8 +216,9 @@ calibration. `src/main.cpp` ne fait plus que lire, écrire et servir le web.
 pio test -e native
 ```
 
-21 cas : rejet du mode commun, convergence du filtre, saturation et monotonie du
-DAC, hystérésis, refus d'une calibration incohérente.
+30 cas au 2026-10-03, contre 21 annoncés ici à l'origine : rejet du mode commun,
+convergence du filtre, saturation et monotonie de la sortie PWM, hystérésis, refus d'une
+calibration incohérente.
 
 **Deux défauts réels ont été trouvés par ces tests pendant l'écriture :**
 
@@ -240,6 +252,13 @@ Ajouts : `delta`, `span`, `hysteresis`, `alpha`, `dac`, `analog_out`,
 
 L'interface web existante fonctionne donc sans modification ; elle ignore
 simplement les nouveaux champs.
+
+> **Correction du 2026-10-03.** Ce n'est plus vrai : l'interface a été étendue
+> depuis (mesure différentielle, sortie proportionnelle, réglages, réseau) et lit
+> ces champs. La liste ci-dessus oubliait le champ `wifi_rssi`, que le module envoie
+> mais que l'interface n'affiche pas, la commande `set_neutral`, et la clé
+> `log_category`.
+> Sur cette branche, le champ `dac` est remplacé par `pwm` et `pwm_full`.
 
 ## 6. Mesures relevées sur la machine le 2026-09-24
 
@@ -282,8 +301,6 @@ compression. Trois conséquences :
    `analog_max_compression`, `analog_max_tension` et `analog_neutral_point` sont
    trois réglages distincts. Le mappage DAC du firmware, lui, reste symétrique
    (`±span`) — à revoir si l'asymétrie mesurée s'avère forte.
-
-## 7. Reste à faire
 
 ## 7. Le plancher du DAC — mesuré le 2026-09-24
 
@@ -334,6 +351,8 @@ Si la pleine échelle devenait nécessaire, la solution est du **PWM sur GPIO 25
 filtré par 1 kΩ + 4,7 µF — un GPIO est push-pull, le tirage devient sans objet.
 Écarté pour l'instant : aucun problème mesuré ne le justifie.
 
+> **2026-10-03.** Essayé et adopté sur cette branche, avec 10 µF : voir la section 10.
+
 ### Bornes relevées, écrites dans `mmu_hardware.cfg`
 
 ```
@@ -368,22 +387,207 @@ produisent rigoureusement rien.
 Une **impression avec changement d'outil** : le seul test qui exerce la boucle
 complète, et le seul qui dira si le gain corrigé rend la régulation plus franche.
 
+> **État au 2026-10-03.** Une impression à deux outils (T2 et T5, 304 min) est
+> allée à son terme le 2026-09-26. La qualité de la régulation pendant les
+> changements d'outil n'a pas été consignée dans ce journal.
+
 Optionnel, jamais mesuré : le comportement **moteurs en marche**. Tous les relevés
 ci-dessus ont été faits à l'arrêt. La ligne PB12 porte maintenant un niveau
 analogique lent au milieu d'une carte qui pilote quatre moteurs pas à pas ; un
 coup d'oscilloscope pendant un mouvement lèverait le dernier doute.
 
-**Outils fournis à la racine du projet :**
-
-```
-surveiller.py [duree] [ip]     releve en continu, min/max, span suggere
-commander.py capture_neutral   envoie une commande et montre l'effet
-commander.py capture_span
-commander.py set_analog_output 0|1
-commander.py regler span=153 alpha=32
-```
+> **Correction du 2026-10-03.** Ce passage citait deux scripts « fournis à la racine
+> du projet », `surveiller.py` et `commander.py`. Ils n'ont jamais été ajoutés au
+> dépôt.
 
 **Point à surveiller** : trois redémarrages sur *brownout* au tout premier
 démarrage après flash, plus aucun ensuite. Probablement l'appel de courant de la
 radio sur l'alimentation USB du poste. En service le module est alimenté par le
 5 V de la MMB. Si le phénomène réapparaît, le levier est `WiFi.setTxPower()`.
+
+## 9. Point au 2026-10-03
+
+### Deux variantes, deux branches
+
+- `sortie-dac-direct` : le firmware décrit par les sections 1 à 8. Sortie DAC
+  160..255, reliée directement à l'entrée STP8.
+- `sortie-pwm-filtre-rc` : la sortie analogique passe en PWM, filtré par 1 kΩ et
+  10 µF. C'est le firmware en service sur la machine depuis le 2026-10-03.
+
+Les bornes Klipper ne sont pas les mêmes d'une variante à l'autre. Le filtre est
+maintenant soudé sur la machine : y remettre le firmware DAC impose de remesurer
+ses bornes, celles de la section 7 ayant été relevées sans résistance en série.
+
+### Calibration par les deux butées
+
+La section 6 concluait que le neutre « ne peut se capturer que filament chargé ».
+En pratique il se calcule : c'est le milieu des deux butées mécaniques. Relevé du
+2026-10-03, sans filament :
+
+```
+butee compression (repos)   S1 1753 mV   S2 1607 mV   S1-S2 = +146
+butee tension (tenue)       S1 1662 mV   S2 1770 mV   S1-S2 = -108
+milieu                      S1 1707,5    S2 1688,5    course +-127
+```
+
+Envoyé au module par `set_neutral` : `n1 = 1708`, `n2 = 1689`, `span = 125`, soit
+127 moins 2 unités de bruit, pour que les butées saturent franchement la sortie.
+
+La calibration précédente (1702 / 1683, `span` 134) avait le même écart S1−S2 au
+neutre, 19 : elle était centrée. Seule sa pleine échelle était trop large de 5 %,
+et les butées ne donnaient que ±0,95.
+
+Par rapport au relevé du 2026-09-24 (S1 de 1625 à 1754 mV, S2 de 1567 à 1770 mV,
+amplitude du delta 276), la course mesurée ici est plus courte : 254. La cause
+n'est pas établie. Le balayage à la main de septembre a pu dépasser les butées
+relevées ici, ou l'aimant a pu bouger entre-temps.
+
+### Incident du 2026-10-03
+
+Impression mono-filament (T2) avec le firmware DAC. Faits relevés dans `mmu.log`
+et sur la machine :
+
+- 09:55, 09:56 et 10:00 : FlowGuard déclenche trois fois, « Compression stuck »
+  après 164 à 213 mm de mouvement et 40 à 41 mm de correction
+  (`flowguard_max_relief: 40`).
+- La distance de rotation corrigée de la porte, stable vers 24,9 pendant la
+  première couche, monte à 30,9 en moins de trois minutes avant le premier arrêt.
+- `ADJUST_TENSION`, servo baissé : 13,8 mm de recul commandés au pignon, 8,7 mm
+  comptés par l'encodeur, et la lecture du capteur ne bouge pas (0,87 à 0,89).
+- Le filament est retrouvé cassé dans le bowden.
+- Après réparation, l'impression reprend et va à son terme (225 min). Sur 45 s, la
+  lecture oscille alors de −0,67 à +0,52, médiane −0,51.
+
+**La cause n'est pas établie.** Une casse dans le bowden alors que le capteur lit
+une compression fait penser à une lecture fausse, mais rien ne l'a démontré. Le
+même fichier était allé à son terme le 2026-09-25. L'aimant du buffer a été bloqué
+mécaniquement dans la foulée, par précaution, et la calibration refaite comme
+ci-dessus.
+
+L'oscillation de ±0,6 ne vient pas de la calibration, qui était centrée. Son
+origine n'a pas été cherchée.
+
+### Défauts corrigés le 2026-10-03
+
+Relevés en confrontant la documentation au code, puis corrigés.
+
+- **Une calibration refusée restait active.** `set_neutral` et
+  `save_simple_calibration` écrivaient les valeurs reçues dans la calibration en
+  service avant de les valider. Refusées, elles n'étaient pas enregistrées en NVS,
+  mais restaient appliquées jusqu'au redémarrage. Les deux commandes valident
+  désormais une copie (`assignIfValid`), et `alpha` est borné de 1 à 256. Trois
+  tests natifs couvrent ce garde-fou.
+- **L'interface affichait des valeurs fausses.** La légende « Zone Tampon ±8 »
+  était figée alors que la bande morte vaut 16 par défaut : elle suit maintenant
+  la valeur du module. Les valeurs affichées avant la première trame (2000 / 1993,
+  ±400) dataient d'avant le passage en millivolts : elles sont remplacées par un
+  tiret. La ligne « Sortie 2 (GPIO 25) » indiquait LOW en mode analogique : elle
+  indique maintenant la nature de la sortie.
+- **La consigne de calibration de l'interface contredisait ce journal.** Elle
+  demandait de placer le filament « en position neutre (pas de contrainte) », alors
+  que la position de repos est la butée de compression. Elle renvoie maintenant à
+  la calibration par les deux butées.
+
+## 10. Sortie PWM filtrée, 2026-10-03
+
+La section 7 écartait le PWM : « aucun problème mesuré ne le justifie ». Il a été
+essayé le 2026-10-03 pour gagner en plage et en résolution. Ce n'est pas une
+réponse à l'incident du jour (section 9), dont la cause reste inconnue.
+
+### Matériel
+
+```
+GPIO 25 ---[ 1 kOhm ]---+--- cable vers STP8 (PB12)
+                        |
+                     [ 10 uF ]   electrolytique traversant, + cote resistance
+                        |
+                       GND
+```
+
+Filtre soudé côté module. 10 µF et non les 4,7 µF envisagés en section 7 : c'est
+la valeur qui était disponible. Constante de temps calculée, résistance seule :
+10 ms.
+
+### Firmware
+
+`deltaToDac` devient `deltaToDuty`. LEDC canal 0, 20 kHz, 11 bits, rapport
+cyclique borné de 5 % à 95 % (102..1945, neutre 1024) : 1844 niveaux contre 96.
+Le statut WebSocket porte `pwm` et `pwm_full` à la place de `dac`. 30 tests natifs.
+
+### Courbe de transfert mesurée
+
+Bras immobile. Le rapport cyclique est imposé depuis le module en déplaçant son
+neutre (`set_neutral`), et lu côté Klipper dans `filament_proportional.value_raw`,
+médiane sur 3 s :
+
+```
+ pwm      rapport   value_raw   tension
+  102      5,0 %     0,1396     0,461 V
+  336     16,4 %     0,2416     0,797 V
+  570     27,8 %     0,3464     1,143 V
+  803     39,2 %     0,4518     1,491 V
+ 1024     50,0 %     0,5515     1,820 V
+ 1240,5   60,6 %     0,6467     2,134 V
+ 1473,5   72,0 %     0,7508     2,478 V
+ 1704     83,2 %     0,8549     2,821 V
+ 1945     95,0 %     0,9593     3,166 V
+```
+
+Droite ajustée : `value_raw = 4,462e-4 × pwm + 0,0931`, écart maximal 0,0017.
+Bornes écrites dans `mmu_hardware.cfg` : `0.139 / 0.550 / 0.961`. L'étendue couvre
+82 % de l'échelle ADC, contre 35 % avec le DAC.
+
+L'extrapolation à 0 % donne 0,31 V. C'est cohérent avec le schéma de la section 2 :
+1 kΩ de filtre et 100 Ω d'entrée en série, face au tirage de 10 kΩ, donnent
+3,3 × 1,1 / 11,1 = 0,33 V.
+
+À rapport cyclique fixe, la lecture se disperse d'environ 0,01 crête à crête. Une
+unité de delta pèse 0,003 : c'est le bruit du capteur qui se voit, maintenant que
+la sortie est assez fine pour le montrer. L'ondulation du PWM n'a pas été mesurée
+à l'oscilloscope.
+
+### Le DAC qui ne lâche pas la broche
+
+Premier flash OTA du firmware PWM par-dessus le firmware DAC : Klipper lit 0,958
+quel que soit le rapport cyclique, de 5 % à 95 %. La sortie ne suit pas.
+
+Un passage par le mode tout ou rien, donc un `pinMode` sur GPIO 25, rend la main :
+broche à l'état bas, Klipper lit 0,5445. De retour en PWM, la courbe est linéaire
+mais écrasée, de 0,569 à 0,981, avec un plancher à 1,80 V, proche de celui du DAC
+relevé en section 7.
+
+Explication retenue, non démontrée au-delà de ces relevés : l'état du DAC survit
+au redémarrage logiciel d'une mise à jour OTA. `ledcAttachPin` ne rend pas la
+broche au numérique, d'où la sortie figée. `pinMode` la rend, mais le DAC reste
+alimenté et se bat contre la sortie logique, d'où le plancher.
+
+Correctif : `dacDisable()` puis `pinMode()` avant `ledcAttachPin()`. Vérifié en
+reflashant le firmware DAC puis le firmware PWM corrigé, sans coupure
+d'alimentation : la courbe du tableau ci-dessus sort directement.
+
+Une courbe relevée avant ce correctif ne vaut rien. Celle de 0,569 à 0,981 aurait
+donné des bornes fausses, et un tirage apparent de 0,84 kΩ au lieu de 10 kΩ.
+
+### Ce qui n'a pas été vérifié
+
+- La courbe après une vraie coupure d'alimentation.
+- Le comportement en impression. Une première impression démarre au moment où ces
+  lignes sont écrites ; son résultat n'est pas consigné ici.
+- Le comportement moteurs en marche, comme en section 8.
+- L'effet de bord utile de la section 2, fil débranché égale compression maximale.
+  Avec ces bornes, une entrée remontée à 3,3 V dépasse `max_compression` (0,961) ;
+  ce que Happy Hare en fait n'a pas été observé.
+
+### Reset matériel par PB3 : essayé, inopérant
+
+Le fil qui reliait PB3 (header I2C de la MMB) à GPIO 25 a été déplacé vers la
+broche RST de l'ESP32, pour pouvoir redémarrer le module depuis Klipper.
+
+- PB3 déclaré en entrée : il lit l'état haut pendant que la ligne du capteur
+  balaie 0,139 à 0,961. Le fil n'est donc plus sur la ligne du capteur.
+- PB3 déclaré en sortie, impulsion basse de 200 ms : l'ESP32 ne redémarre pas, son
+  WebSocket émet sans interruption.
+
+Le fil ne relie donc pas PB3 à RST. Le premier essai ne prouvait rien de plus : une
+entrée en l'air, ou tirée par ailleurs, lit aussi l'état haut. PB3 est laissé non
+déclaré dans Klipper en attendant un contrôle au multimètre.
