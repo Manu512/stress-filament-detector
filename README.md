@@ -244,7 +244,7 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE).
 **Configuration de test :**
 - **Imprimante :** Voron 2.4 R2
 - **Contrôleur :** Raspberry Pi 4B (4GB RAM)
-- **Stockage :** HDD USB 1TB
+- **Stockage :** carte SD de 32 Go (à l'origine un HDD USB de 1 To)
 - **Écran :** Waveshare 4.3" avec mod Peek-a-boo display (fbeauKmi)
 - **Carte mère principale :** BTT Octopus Pro V1.1
 - **Interface CAN :** BTT U2C CAN Bus Adapter
@@ -253,7 +253,7 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE).
 - **Hotend :** BambuLab X1C Hotend
 - **Steppers A/B :** TMC5160 (Alimentation 48V)
 - **Steppers autres :** TMC2209 (Alimentation 24V)
-- **Firmware :** Klipper avec Happy Hare MMU
+- **Firmware :** Kalico avec Happy Hare MMU (à l'origine Klipper)
 - **MMU :** Multi-Material Unit avec gestion Happy Hare
 - **Capteurs :** 2x SS49E Hall sensors positionnés sur le chemin filament
 
@@ -267,7 +267,6 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE).
 - Testé avec TMC5160 48V sur axes A/B pour performances maximales
 - Stabilité excellente même à haute vitesse d'impression
 - Interface web accessible depuis écran Waveshare 4.3" (mod Peek-a-boo)
-- Stockage 1TB parfait pour logs longue durée et timelapses
 
 ## 👨‍💻 Auteur
 
