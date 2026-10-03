@@ -29,7 +29,7 @@ On passe d'un mode à l'autre depuis l'interface web, sans reflasher l'ESP32, pu
 
 ### Interface Web
 ![Interface Web](docs/interface_web.png)
-*Interface d'origine, octobre 2025. L'interface actuelle y ajoute la mesure différentielle, la sortie proportionnelle, les réglages et le réseau : cette capture n'a pas été refaite.*
+*Interface de la variante DAC, capturée le 3 octobre 2026 sur la machine de test, buffer au repos en butée de compression. Le bloc Réseau, plus bas dans la page, n'est pas montré.*
 
 ### Capteur ESP32
 ![Capteur ESP32](docs/ERFC_capteur_ESP32.PNG)
