@@ -97,6 +97,12 @@ void clearCredentials() {
     cfgPass = "";
 }
 
+String accessKey() {
+    if (!cfgSsid.isEmpty()) return cfgPass;
+    // Identifiants connus du seul pilote WiFi : voir lancerTentative().
+    return WiFi.psk();
+}
+
 void begin(const char* hostname, const char* apPassword) {
     host   = hostname ? hostname : "stress-filament";
     apPass = apPassword ? apPassword : "";

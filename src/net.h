@@ -54,6 +54,12 @@ void saveCredentials(const String& ssid, const String& password);
 // Efface les identifiants stockes.
 void clearCredentials();
 
+// Cle qui protege les ecritures et l'OTA : celle du reseau WiFi enregistre.
+// Vide tant que le module n'a aucun reseau (module neuf) ou si ce reseau est
+// ouvert, auquel cas rien n'est verrouille : sinon un module neuf, joignable
+// seulement par son point d'acces, ne pourrait plus etre configure.
+String accessKey();
+
 // A appeler une fois, APRES l'initialisation des capteurs et des sorties.
 // Ne bloque pas : se contente d'armer la machine a etats.
 void begin(const char* hostname, const char* apPassword);

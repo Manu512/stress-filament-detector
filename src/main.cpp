@@ -26,6 +26,7 @@
 #include <Preferences.h>
 #include <LittleFS.h>
 
+#include "auth.h"
 #include "net.h"
 #include "stress_core.h"
 
@@ -81,6 +82,12 @@ static AsyncWebServer server(80);
 static AsyncWebSocket ws("/ws");
 
 static bool otaDemarre = false;
+
+// Redemarrage demande depuis l'interface. Il est differe de quelques centaines
+// de millisecondes pour que le journal parte avant la coupure.
+static bool     redemarrageArme = false;
+static uint32_t redemarrageA    = 0;
+constexpr uint32_t kDelaiRedemarrageMs = 500;
 
 // Cadences, toutes non bloquantes
 static uint32_t dernierEchantillon = 0;
@@ -281,6 +288,99 @@ static void notifierClients() {
 }
 
 // --------------------------------------------------------------------------
+// Verrou des ecritures
+// --------------------------------------------------------------------------
+//
+// La lecture reste libre, toute ecriture exige une session deverrouillee par
+// la cle du reseau WiFi. Le controle se fait en un seul endroit, avant
+// traiterCommande() : une commande ajoutee plus tard est protegee d'office.
+
+// Une session par client WebSocket. Le defi change a chaque tentative, ce qui
+// rend une reponse interceptee inutilisable une seconde fois.
+struct Session {
+    uint32_t id      = 0;       // 0 : emplacement libre (les clients commencent a 1)
+    bool     ouverte = false;
+    char     defi[auth::kNonceLen + 1] = "";
+};
+
+constexpr size_t   kMaxSessions      = 8;
+constexpr uint32_t kDelaiTentativeMs = 1000;   // frein a la force brute
+
+static Session  sessions[kMaxSessions];
+static String   cleAcces;                      // vide : pas de verrou
+static uint32_t derniereTentative = 0;
+
+static Session* trouverSession(uint32_t id) {
+    for (Session& s : sessions) {
+        if (s.id == id) return &s;
+    }
+    return nullptr;
+}
+
+static void fermerSession(uint32_t id) {
+    if (Session* s = trouverSession(id)) *s = Session();
+}
+
+static Session* ouvrirSession(uint32_t id) {
+    for (Session& s : sessions) {
+        // Un emplacement dont le client a disparu sans evenement de
+        // deconnexion est repris plutot que perdu.
+        if (s.id != 0 && ws.hasClient(s.id)) continue;
+        s = Session();
+        s.id = id;
+        auth::newNonce(s.defi);
+        return &s;
+    }
+    return nullptr;
+}
+
+static void envoyerEtatVerrou(AsyncWebSocketClient* client, const Session& s,
+                              const char* erreur = nullptr) {
+    const bool verrouille = !cleAcces.isEmpty() && !s.ouverte;
+    JsonDocument d;
+    d["type"]   = "auth";
+    d["locked"] = verrouille;
+    if (verrouille) d["nonce"] = s.defi;
+    if (erreur)     d["error"] = erreur;
+    String out;
+    serializeJson(d, out);
+    client->text(out);
+}
+
+// Vrai si la trame peut etre executee. Les demandes de deverrouillage et de
+// verrouillage sont traitees ici : ce ne sont pas des commandes du module.
+static bool autoriser(AsyncWebSocketClient* client, JsonDocument& doc) {
+    Session* s = trouverSession(client->id());
+    const String cmd = doc["cmd"] | "";
+
+    if (cmd == "lock" || cmd == "unlock") {
+        if (!s) return false;
+        if (cmd == "lock") {
+            s->ouverte = false;
+            auth::newNonce(s->defi);
+            envoyerEtatVerrou(client, *s);
+            return false;
+        }
+        const uint32_t maintenant = millis();
+        if (maintenant - derniereTentative < kDelaiTentativeMs) {
+            envoyerEtatVerrou(client, *s, "retry");
+            return false;
+        }
+        derniereTentative = maintenant;
+        s->ouverte = auth::verify(cleAcces, s->defi, doc["response"] | "");
+        // Defi a usage unique, que la reponse soit bonne ou non.
+        auth::newNonce(s->defi);
+        envoyerEtatVerrou(client, *s, s->ouverte ? nullptr : "bad_key");
+        return false;
+    }
+
+    if (cleAcces.isEmpty()) return true;
+    if (s && s->ouverte)    return true;
+    if (s) envoyerEtatVerrou(client, *s, "locked");
+    return false;
+}
+
+// --------------------------------------------------------------------------
 // Commandes WebSocket
 // --------------------------------------------------------------------------
 
@@ -371,11 +471,18 @@ static void traiterCommande(JsonDocument& doc) {
             // Saisie des identifiants depuis le point d'acces de repli : plus
             // besoin de recompiler pour changer de reseau.
             net::saveCredentials(doc["ssid"].as<String>(), doc["password"].as<String>());
+            cleAcces = net::accessKey();
             logToClients("Identifiants WiFi enregistres, connexion en cours", CAT_OUTPUT);
 
         } else if (cmd == "forget_wifi") {
             net::clearCredentials();
+            cleAcces = net::accessKey();
             logToClients("Identifiants WiFi effaces", CAT_OUTPUT);
+
+        } else if (cmd == "reboot") {
+            redemarrageArme = true;
+            redemarrageA    = millis();
+            logToClients("Redemarrage demande", CAT_OUTPUT);
         }
     }
 
@@ -384,11 +491,22 @@ static void traiterCommande(JsonDocument& doc) {
     if (doc["log_category"].is<int>())     filtreConsole     = (LogCategory)doc["log_category"].as<int>();
 }
 
-static void onWsEvent(AsyncWebSocket*, AsyncWebSocketClient*, AwsEventType type,
+static void onWsEvent(AsyncWebSocket*, AsyncWebSocketClient* client, AwsEventType type,
                       void*, uint8_t* data, size_t len) {
+    if (type == WS_EVT_CONNECT) {
+        // Chaque client apprend d'emblee s'il doit se deverrouiller, et avec
+        // quel defi.
+        if (const Session* s = ouvrirSession(client->id())) envoyerEtatVerrou(client, *s);
+        return;
+    }
+    if (type == WS_EVT_DISCONNECT) {
+        fermerSession(client->id());
+        return;
+    }
     if (type != WS_EVT_DATA) return;
     JsonDocument doc;
     if (deserializeJson(doc, data, len)) return;  // JSON invalide : on ignore
+    if (!autoriser(client, doc)) return;
     traiterCommande(doc);
 }
 
@@ -404,6 +522,12 @@ static void demarrerServicesReseau() {
     // On le desactive : le televersement reseau se fait par IP ou par le nom
     // .lan resolu par le routeur, pas par decouverte mDNS.
     ArduinoOTA.setMdnsEnabled(false);
+    // Meme cle pour l'OTA : sans elle, reflasher le module contournerait le
+    // verrou des ecritures. ArduinoOTA ne prend son mot de passe qu'avant
+    // begin() : apres un changement de reseau, l'OTA ne suit la nouvelle cle
+    // qu'au redemarrage suivant.
+    cleAcces = net::accessKey();
+    if (!cleAcces.isEmpty()) ArduinoOTA.setPassword(cleAcces.c_str());
     ArduinoOTA.begin();
 
     if (LittleFS.begin(true)) {
@@ -451,4 +575,6 @@ void loop() {
 
     notifierClients();
     ws.cleanupClients();
+
+    if (redemarrageArme && millis() - redemarrageA >= kDelaiRedemarrageMs) ESP.restart();
 }

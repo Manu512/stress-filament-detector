@@ -3,221 +3,223 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Détecteur de Stress Filament</title>
+    <title>Détecteur de stress filament</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
+    <div class="page">
         <!-- En-tête -->
-        <div class="header">
-            <h1>🔬 Détecteur de Stress Filament</h1>
-            <p class="subtitle">Système de détection 3 zones différentiel</p>
+        <header class="entete">
+            <div>
+                <h1>Détecteur de stress filament</h1>
+                <p class="sous-titre">Mesure différentielle à effet Hall</p>
+            </div>
+            <div class="etats">
+                <div class="liaison" id="verrouEtat" hidden>Verrouillé</div>
+                <div class="liaison" id="liaison">
+                    <span class="voyant"></span>
+                    <span id="liaisonTexte">Déconnecté</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Onglets -->
+        <div class="onglets" role="tablist">
+            <button class="onglet" role="tab" data-onglet="mesure">Mesure</button>
+            <button class="onglet" role="tab" data-onglet="calibration">Calibration</button>
+            <button class="onglet" role="tab" data-onglet="reglages">Réglages</button>
         </div>
 
-        <!-- Barre de statut -->
-        <div class="status-bar">
-            <div class="status-item">
-                <span>WebSocket:</span>
-                <span class="status-badge disconnected" id="wsStatusBadge">Déconnecté</span>
-            </div>
-            <div class="status-item">
-                <span>Status:</span>
-                <span class="status-badge disconnected" id="statusBadge">Hors ligne</span>
-            </div>
-            <!-- Éléments cachés pour compatibilité JS -->
-            <div style="display: none;">
-                <span id="wsStatus">Fermé</span>
-                <span id="status">Déconnecté</span>
-            </div>
-        </div>
-
-        <!-- Affichage principal de l'état -->
-        <div class="main-display">
-            <h2>État Actuel</h2>
-            <div id="currentState" class="current-state neutral">
-                🟡 NEUTRE
-            </div>
-            
-            <!-- Légendes des zones -->
-            <div class="zones-legend">
-                <div class="zone-legend-item compression">
-                    <h3>🔴 COMPRESSION</h3>
-                    <p>S1 Haut + S2 Bas</p>
+        <!-- Verrou des écritures : affiché hors de l'onglet Mesure quand le module est protégé -->
+        <div class="carte verrou" id="verrou" hidden>
+            <form id="formVerrou">
+                <label for="inCle">
+                    Réglages protégés par la clé du réseau Wi-Fi. Elle n'est pas transmise : la page ne renvoie
+                    qu'une empreinte.
+                </label>
+                <div class="choix">
+                    <input type="password" id="inCle" placeholder="Clé Wi-Fi" autocomplete="off">
+                    <button class="bouton principal" type="submit">Déverrouiller</button>
                 </div>
-                <div class="zone-legend-item neutral">
-                    <h3>🟡 NEUTRE</h3>
-                    <p>Zone tampon <span id="zoneTampon">±16</span></p>
-                </div>
-                <div class="zone-legend-item tension">
-                    <h3>🔵 TENSION</h3>
-                    <p>S2 Haut + S1 Bas</p>
-                </div>
+                <p class="note" id="verrouErreur" hidden></p>
+            </form>
+            <div class="verrou-ouvert" id="verrouOuvert" hidden>
+                <span>Écriture déverrouillée pour cette session.</span>
+                <button class="bouton" id="btnVerrouiller">Verrouiller</button>
             </div>
         </div>
 
-        <!-- Monitoring des capteurs et sorties -->
-        <div class="monitoring-grid">
-            <!-- Capteurs -->
-            <div class="monitoring-card">
-                <h3 class="card-title">📊 Capteurs Hall</h3>
-                <div class="sensor-display">
-                    <div class="sensor-value">
-                        <div class="sensor-label">Capteur S1</div>
-                        <div class="sensor-number" id="raw1">0</div>
-                        <div class="zone-status zone-neutre" id="zone1">NEUTRE</div>
-                        <div class="neutral-range" id="neutral1">—</div>
-                    </div>
-                    <div class="sensor-value">
-                        <div class="sensor-label">Capteur S2</div>
-                        <div class="sensor-number" id="raw2">0</div>
-                        <div class="zone-status zone-neutre" id="zone2">NEUTRE</div>
-                        <div class="neutral-range" id="neutral2">—</div>
-                    </div>
+        <!-- Onglet Mesure -->
+        <section class="panneau" id="onglet-mesure" role="tabpanel">
+            <div class="carte">
+                <div class="carte-tete">
+                    <h2>Position du tampon</h2>
+                    <span class="etat neutre" id="etat">Neutre</span>
                 </div>
+                <div class="position" id="position">—</div>
+                <div class="jauge">
+                    <div class="jauge-zone" id="jaugeZone"></div>
+                    <div class="jauge-milieu"></div>
+                    <div class="jauge-curseur neutre" id="jaugeCurseur"></div>
+                </div>
+                <div class="jauge-legende">
+                    <span>Traction 100&nbsp;%</span>
+                    <span>Neutre</span>
+                    <span>Compression 100&nbsp;%</span>
+                </div>
+                <p class="detail" id="detailMesure">—</p>
             </div>
 
-            <!-- Sorties -->
-            <div class="monitoring-card">
-                <h3 class="card-title">⚡ Sorties GPIO</h3>
-                <div class="output-status">
-                    <span class="output-label">Sortie 1 (GPIO 26)</span>
-                    <span class="output-value low" id="output1">LOW</span>
-                </div>
-                <div class="output-status">
-                    <span class="output-label">Sortie 2 (GPIO 25)</span>
-                    <span class="output-value low" id="output2">LOW</span>
-                </div>
-            </div>
-
-            <!-- Mesure differentielle et sortie analogique -->
-            <div class="monitoring-card">
-                <h3 class="card-title">📐 Mesure différentielle</h3>
-                <div class="sensor-display">
-                    <div class="sensor-value">
-                        <div class="sensor-label">Delta filtré</div>
-                        <div class="sensor-number" id="delta">0</div>
-                        <div class="neutral-range" id="deltaSpan">pleine échelle —</div>
+            <div class="grille">
+                <div class="carte">
+                    <div class="carte-tete">
+                        <h2>Sortie</h2>
+                        <span class="pastille" id="modeSortie">—</span>
                     </div>
-                    <div class="sensor-value">
-                        <div class="sensor-label">Sortie PWM</div>
-                        <div class="sensor-number" id="pwm">—</div>
-                        <div class="neutral-range" id="tensionLevel">tension 0 ‰</div>
+                    <div class="ligne">
+                        <span>GPIO 25</span>
+                        <span class="valeur" id="sortie25">—</span>
+                    </div>
+                    <div class="ligne" id="ligne26">
+                        <span>GPIO 26</span>
+                        <span class="valeur" id="sortie26">—</span>
                     </div>
                 </div>
-                <div class="output-status">
-                    <span class="output-label">Mode de sortie</span>
-                    <span class="output-value low" id="modeSortie">—</span>
-                </div>
-            </div>
-        </div>
 
-        <!-- Calibration -->
-        <div class="calibration-section">
-            <h3 class="card-title">🎯 Calibration</h3>
-            <p class="calibration-note">
-                Ce bouton prend la position actuelle comme neutre. Attention : le ressort pousse le buffer vers la
-                compression, sa position de repos n'est donc pas le neutre. La méthode fiable passe par les deux butées
-                et la commande <code>set_neutral</code> : voir le README.
-            </p>
-            <button id="capNeutral" class="btn-calibrate">
-                🎯 Capturer Position Neutre
-            </button>
-            
-            <div class="calibration-values">
-                <div class="calibration-value">
-                    <div class="calibration-label">Point Neutre S1</div>
-                    <div class="calibration-number" id="capN1">—</div>
-                </div>
-                <div class="calibration-value">
-                    <div class="calibration-label">Point Neutre S2</div>
-                    <div class="calibration-number" id="capN2">—</div>
+                <div class="carte">
+                    <div class="carte-tete">
+                        <h2>Capteurs Hall</h2>
+                    </div>
+                    <div class="ligne">
+                        <span>S1</span>
+                        <span class="valeur"><span id="raw1">—</span> <small id="ecart1"></small></span>
+                    </div>
+                    <div class="ligne">
+                        <span>S2</span>
+                        <span class="valeur"><span id="raw2">—</span> <small id="ecart2"></small></span>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Reglages avances et reseau -->
-        <div class="calibration-section">
-            <h3 class="card-title">⚙️ Sortie proportionnelle</h3>
-            <p class="calibration-note">
-                Type P pour Happy&nbsp;Hare : la position continue sort en PWM filtré sur GPIO&nbsp;25.
-                Type D conserve les deux sorties tout ou rien. La bascule est immédiate, sans reflashage.
-            </p>
-            <button id="btnModeD" class="btn-calibrate">🔀 Passer en type D (tout ou rien)</button>
-            <button id="btnModeP" class="btn-calibrate">📈 Passer en type P (analogique)</button>
+            <div class="carte">
+                <div class="carte-tete">
+                    <h2>Dernière minute</h2>
+                </div>
+                <canvas id="courbe" class="courbe"></canvas>
+            </div>
+        </section>
 
-            <p class="calibration-note">
-                Poussez le buffer en butée d'un côté, puis capturez la pleine échelle.
-                Sans elle, la conversion vers la sortie analogique n'a pas de référence.
-            </p>
-            <button id="btnCapSpan" class="btn-calibrate">📏 Capturer la pleine échelle</button>
+        <!-- Onglet Calibration -->
+        <section class="panneau" id="onglet-calibration" role="tabpanel" hidden>
+            <div class="carte">
+                <div class="carte-tete">
+                    <h2>Calibration en mémoire</h2>
+                    <span class="pastille" id="calValide">—</span>
+                </div>
+                <div class="ligne"><span>Neutre S1</span><span class="valeur" id="capN1">—</span></div>
+                <div class="ligne"><span>Neutre S2</span><span class="valeur" id="capN2">—</span></div>
+                <div class="ligne"><span>Pleine échelle</span><span class="valeur" id="capSpan">—</span></div>
+            </div>
 
-            <div class="calibration-values">
-                <div class="calibration-value">
-                    <div class="calibration-label">Zone neutre</div>
-                    <input type="number" id="inZone" class="calibration-number" style="width:100%">
+            <div class="grille">
+                <div class="carte">
+                    <div class="carte-tete"><h2>Position neutre</h2></div>
+                    <p class="note">
+                        Prend la position actuelle comme neutre. Attention : le ressort pousse le buffer vers la
+                        compression, sa position de repos n'est donc pas le neutre. La méthode fiable passe par les
+                        deux butées et la commande <code>set_neutral</code> : voir le README.
+                    </p>
+                    <button class="bouton ecriture" id="btnCapNeutre">Capturer la position neutre</button>
                 </div>
-                <div class="calibration-value">
-                    <div class="calibration-label">Hystérésis</div>
-                    <input type="number" id="inHyst" class="calibration-number" style="width:100%">
-                </div>
-                <div class="calibration-value">
-                    <div class="calibration-label">Pleine échelle</div>
-                    <input type="number" id="inSpan" class="calibration-number" style="width:100%">
-                </div>
-                <div class="calibration-value">
-                    <div class="calibration-label">Filtrage (1-256)</div>
-                    <input type="number" id="inAlpha" class="calibration-number" style="width:100%">
-                </div>
-            </div>
-            <button id="btnSaveAdv" class="btn-calibrate">💾 Enregistrer les réglages</button>
-        </div>
 
-        <div class="calibration-section">
-            <h3 class="card-title">📶 Réseau</h3>
-            <div class="output-status">
-                <span class="output-label">État</span>
-                <span class="output-value low" id="wifiPhase">—</span>
-            </div>
-            <div class="output-status">
-                <span class="output-label">Réseau / IP</span>
-                <span class="output-value low" id="wifiInfo">—</span>
-            </div>
-            <p class="calibration-note">
-                Les identifiants sont stockés dans le module, plus dans le firmware.
-                À renseigner depuis le point d'accès de secours si la connexion échoue.
-            </p>
-            <div class="calibration-values">
-                <div class="calibration-value">
-                    <div class="calibration-label">SSID</div>
-                    <input type="text" id="inSsid" class="calibration-number" style="width:100%">
-                </div>
-                <div class="calibration-value">
-                    <div class="calibration-label">Mot de passe</div>
-                    <input type="password" id="inPass" class="calibration-number" style="width:100%">
+                <div class="carte">
+                    <div class="carte-tete"><h2>Pleine échelle</h2></div>
+                    <p class="note">
+                        Poussez le buffer en butée d'un côté, puis capturez. Sans pleine échelle, la conversion vers
+                        la sortie analogique n'a pas de référence.
+                    </p>
+                    <button class="bouton ecriture" id="btnCapSpan">Capturer la pleine échelle</button>
                 </div>
             </div>
-            <button id="btnSaveWifi" class="btn-calibrate">💾 Enregistrer et se connecter</button>
-            <button id="btnForgetWifi" class="btn-calibrate">🗑️ Oublier le réseau</button>
-        </div>
+
+            <div class="carte">
+                <div class="carte-tete"><h2>Paramètres</h2></div>
+                <div class="champs">
+                    <label>Zone neutre (mV)<input type="number" id="inZone"></label>
+                    <label>Hystérésis (mV)<input type="number" id="inHyst"></label>
+                    <label>Pleine échelle (mV)<input type="number" id="inSpan"></label>
+                    <label>Filtrage (1 à 256)<input type="number" id="inAlpha"></label>
+                </div>
+                <button class="bouton principal ecriture" id="btnSaveAdv">Enregistrer les paramètres</button>
+            </div>
+        </section>
+
+        <!-- Onglet Réglages -->
+        <section class="panneau" id="onglet-reglages" role="tabpanel" hidden>
+            <div class="carte">
+                <div class="carte-tete"><h2>Mode de sortie</h2></div>
+                <p class="note">
+                    Type P pour Happy&nbsp;Hare : la position continue sort en PWM filtré sur GPIO&nbsp;25.
+                    Type D conserve les deux sorties tout ou rien et demande que GPIO&nbsp;26 soit câblé en plus.
+                    La bascule est immédiate, sans reflashage.
+                </p>
+                <div class="choix">
+                    <button class="bouton ecriture" id="btnModeP">Type P (analogique)</button>
+                    <button class="bouton ecriture" id="btnModeD">Type D (tout ou rien)</button>
+                </div>
+            </div>
+
+            <div class="grille">
+                <div class="carte">
+                    <div class="carte-tete">
+                        <h2>Wi-Fi</h2>
+                        <span class="pastille" id="wifiPhase">—</span>
+                    </div>
+                    <div class="ligne"><span>Réseau</span><span class="valeur" id="wifiSsid">—</span></div>
+                    <div class="ligne"><span>Adresse IP</span><span class="valeur" id="wifiIp">—</span></div>
+                    <div class="ligne">
+                        <span>Signal</span>
+                        <span class="valeur signal">
+                            <span class="barres" id="wifiBarres"><i></i><i></i><i></i><i></i></span>
+                            <span id="wifiSignal">—</span>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="carte">
+                    <div class="carte-tete"><h2>Identifiants</h2></div>
+                    <p class="note">
+                        Stockés dans le module, pas dans le firmware. À renseigner depuis le point d'accès de secours
+                        si la connexion échoue.
+                    </p>
+                    <div class="champs">
+                        <label>SSID<input type="text" id="inSsid" autocomplete="off"></label>
+                        <label>Mot de passe<input type="password" id="inPass" autocomplete="new-password"></label>
+                    </div>
+                    <div class="choix">
+                        <button class="bouton principal ecriture" id="btnSaveWifi">Enregistrer et se connecter</button>
+                        <button class="bouton danger ecriture" id="btnForgetWifi">Oublier le réseau</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="carte">
+                <div class="carte-tete"><h2>Module</h2></div>
+                <p class="note">
+                    Le redémarrage coupe la sortie pendant quelques secondes : à éviter pendant une impression.
+                    La calibration et les identifiants sont conservés.
+                </p>
+                <button class="bouton danger ecriture" id="btnReboot">Redémarrer le module</button>
+            </div>
+        </section>
 
         <!-- Pied de page -->
-        <footer class="footer">
-            <div class="footer-content">
-                <h4>🔬 Détecteur de Stress Filament</h4>
-                <p class="footer-author">by <strong>Manu512</strong></p>
-                <div class="footer-links">
-                    <a href="https://github.com/Manu512" target="_blank" class="github-link">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                        </svg>
-                        GitHub
-                    </a>
-                </div>
-                <p class="footer-date">© 2025 - Développé en octobre</p>
-            </div>
+        <footer class="pied">
+            Détecteur de stress filament · © 2026 <a href="https://github.com/Manu512" target="_blank" rel="noopener">Manu512</a>
         </footer>
     </div>
 
-    <script src="script.js?v=2"></script>
+    <script src="sha256.js?v=1"></script>
+    <script src="script.js?v=3"></script>
 </body>
 </html>

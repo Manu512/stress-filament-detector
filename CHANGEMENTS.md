@@ -260,6 +260,10 @@ simplement les nouveaux champs.
 > `log_category`.
 > Sur `main`, le champ `dac` est remplacé par `pwm` et `pwm_full`.
 
+> **Ajout du 2026-10-04.** Trames `auth`, commandes `unlock`, `lock` et `reboot` :
+> voir la section 11. Le champ `tension_permille` est toujours émis, mais
+> l'interface ne le lit plus.
+
 ## 6. Mesures relevées sur la machine le 2026-09-24
 
 Firmware flashé et vérifié : HTTP 200, reconnexion WiFi automatique, ADC
@@ -592,3 +596,77 @@ broche RST de l'ESP32, pour pouvoir redémarrer le module depuis Klipper.
 Le fil ne relie donc pas PB3 à RST. Le premier essai ne prouvait rien de plus : une
 entrée en l'air, ou tirée par ailleurs, lit aussi l'état haut. PB3 est laissé non
 déclaré dans Klipper en attendant un contrôle au multimètre.
+
+## 11. Interface à onglets et verrou des écritures, 2026-10-04
+
+### Interface
+
+La page affichait tout en permanence, configuration comprise, et écrivait
+« tension 179 ‰ » pour une position mécanique : lu comme une tension électrique,
+c'était faux deux fois, par le mot et par l'unité.
+
+- Trois onglets : Mesure, Calibration, Réglages. La configuration n'est plus à
+  l'écran quand on regarde la mesure.
+- Position en pourcentage de la pleine échelle, nommée « traction » ou
+  « compression », avec une jauge et la courbe de la dernière minute.
+- Unités explicites : capteurs et écart en mV, sortie en pourcentage et en volts
+  approchés (rapport cyclique × 3,3 V, calculé et non mesuré).
+- Niveau du signal Wi-Fi affiché, en dBm et en barres. Le champ `wifi_rssi`
+  existait déjà, l'interface l'ignorait.
+- Ligne GPIO 26 masquée en type P : sur la machine de test cette sortie n'est
+  plus câblée, et elle ne sert de toute façon qu'au type D.
+- Second clic de confirmation sur les commandes qui touchent à la calibration,
+  au mode de sortie ou au réseau.
+- Thème clair ou sombre selon le système, mise en page téléphone.
+
+L'hôte du WebSocket peut être forcé par `?hote=nom-ou-adresse`, ce qui permet
+d'ouvrir la page depuis un fichier local pour la mettre au point sans flasher.
+
+### Verrou des écritures
+
+Jusqu'ici, n'importe quel poste du réseau pouvait recalibrer le module, changer
+son mode de sortie ou le reflasher par OTA.
+
+- La lecture reste libre. Toute écriture exige une session déverrouillée par la
+  clé du réseau Wi-Fi enregistré.
+- La page est servie en HTTP, donc la clé ne circule pas : défi aléatoire de
+  16 octets, réponse `HMAC-SHA256(clé, défi)`, comparaison à temps constant. Le
+  défi est à usage unique, une tentative par seconde au plus.
+- Le contrôle se fait en un seul endroit, avant le traitement des commandes :
+  une commande ajoutée plus tard est protégée d'office.
+- `crypto.subtle` n'existe pas sur une page HTTP : `data/sha256.js` embarque
+  SHA-256 et HMAC en JavaScript pur. Ses résultats ont été comparés à ceux de
+  Python sur douze cas, dont une clé accentuée et une clé de plus de 64 octets.
+- La clé vient de la NVS du module, ou à défaut du pilote Wi-Fi (`WiFi.psk()`),
+  pour un module configuré avant que les identifiants ne soient stockés en NVS.
+- Un module sans réseau enregistré n'a pas de verrou, sinon il ne pourrait plus
+  être configuré depuis son point d'accès.
+- L'OTA prend la même clé. `ArduinoOTA` ne l'accepte qu'avant `begin()` : après
+  un changement de réseau, elle ne suit qu'au redémarrage.
+- Commande `reboot`, différée de 500 ms pour laisser partir le journal.
+
+### Ce qui a été vérifié sur la machine
+
+Envoi par OTA le 2026-10-04, imprimante à l'arrêt, page d'abord puis firmware.
+Calibration conservée (1660 / 1660 mV, pleine échelle 206), la MMB lit toujours
+la sortie. Essais menés sans la clé :
+
+| Essai | Réponse |
+|---|---|
+| Connexion | `locked: true` et un défi de 32 caractères |
+| Écriture d'un paramètre | `locked`, valeur inchangée |
+| Réglage envoyé sans `cmd` | `locked` |
+| Mauvaise clé | `bad_key`, nouveau défi |
+| Seconde tentative immédiate | `retry` |
+| Réponse malformée | `bad_key` |
+| `reboot` | `locked` |
+| Envoi OTA sans la variable d'environnement | « Authentication Failed » |
+
+### Ce qui n'a pas été vérifié
+
+- Le déverrouillage avec la bonne clé, depuis la page ou un script : ces essais
+  ont été faits sans la connaître.
+- La commande `reboot` une fois la session ouverte.
+- Le module en point d'accès de repli avec des identifiants connus du seul
+  pilote Wi-Fi.
+- Aucun test automatisé ne couvre le verrou ni la page.

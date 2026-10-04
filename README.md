@@ -28,8 +28,11 @@ On passe d'un mode à l'autre depuis l'interface web, sans reflasher l'ESP32, pu
 ## 📸 Galerie
 
 ### Interface Web
-![Interface Web](docs/interface_web.png)
-*Interface de la variante PWM, capturée le 3 octobre 2026 sur la machine de test, buffer au repos en butée de compression. Le bloc Réseau, plus bas dans la page, n'est pas montré.*
+![Onglet Mesure](docs/interface_web.png)
+*Onglet Mesure, capturé le 4 octobre 2026 sur la machine de test.*
+
+![Onglet Calibration verrouillé](docs/interface_web_calibration.png)
+*Onglet Calibration avant saisie de la clé : les boutons d'écriture sont inactifs. L'onglet Réglages, qui affiche le réseau et l'adresse IP, n'est pas montré.*
 
 ### Capteur ESP32
 ![Capteur ESP32](docs/ERFC_capteur_ESP32.PNG)
@@ -46,8 +49,9 @@ On passe d'un mode à l'autre depuis l'interface web, sans reflasher l'ESP32, pu
 - 🧮 **Mesure différentielle** : la différence entre les deux capteurs annule la dérive thermique et les variations d'alimentation
 - 🛡️ **La mesure ne dépend jamais du réseau** : le Wi-Fi ne bloque jamais la boucle de mesure
 - 📶 **Wi-Fi sans recompilation** : identifiants stockés en mémoire NVS, point d'accès de repli pour les saisir
-- 📊 **Interface web temps réel** : WebSocket, calibration, réglages, état du Wi-Fi
-- 🔄 **Mise à jour OTA**
+- 📊 **Interface web temps réel** : trois onglets (mesure, calibration, réglages), courbe de la dernière minute, niveau du signal Wi-Fi
+- 🔒 **Écritures verrouillées** : calibration, réglages et redémarrage exigent la clé du réseau Wi-Fi, qui n'est jamais transmise
+- 🔄 **Mise à jour OTA**, protégée par la même clé
 - 🧪 **Logique testée sur PC** : tests unitaires natifs, sans matériel
 
 ## 🛠️ Matériel requis
@@ -171,6 +175,13 @@ pio run -e wemos_d1_mini32_ota -t uploadfs  # et interface web par le réseau
 ```
 Avant d'utiliser l'OTA, adaptez `upload_port` dans `platformio.ini` au nom ou à l'IP de votre module.
 
+Dès que le module a un réseau Wi-Fi enregistré, l'OTA exige la clé de ce réseau. Elle se passe par une variable d'environnement, jamais par `platformio.ini` :
+```bash
+export STRESS_FILAMENT_KEY='la clé du réseau'      # PowerShell : $env:STRESS_FILAMENT_KEY = '...'
+pio run -e wemos_d1_mini32_ota -t upload
+```
+Sans la variable, l'envoi échoue sur « Authentication Failed ». Le téléversement par USB reste possible dans tous les cas : c'est aussi la porte de sortie si la clé est perdue.
+
 ### 3. Configurer le Wi-Fi
 Il n'y a plus d'identifiants à compiler, ni de fichier `config_private.h`.
 
@@ -181,12 +192,40 @@ Il n'y a plus d'identifiants à compiler, ni de fichier `config_private.h`.
 
 Une fois en point d'accès, le module y reste jusqu'à la saisie de nouveaux identifiants ou jusqu'à son redémarrage. S'il perd le réseau en cours de route, il retente la connexion selon le même cycle. Pendant tout ce temps, **la mesure et les sorties continuent de fonctionner.**
 
+Un module qui n'a encore aucun réseau enregistré n'a pas de verrou : il n'est joignable que par son point d'accès, et il faut bien pouvoir le configurer. Le verrou apparaît avec le premier réseau protégé par une clé.
+
 ## 🎮 Utilisation
 
 ### Interface web
-Accessible à l'adresse IP du module, ou par son nom d'hôte si votre réseau le résout : par exemple `http://stress-filament.lan`. Elle affiche en temps réel les deux capteurs et leur zone, l'écart filtré entre eux, le rapport cyclique de la sortie, l'état, le niveau de tension, le mode de sortie, le réseau et l'adresse IP.
+Accessible à l'adresse IP du module, ou par son nom d'hôte si votre réseau le résout : par exemple `http://stress-filament.lan`. Elle suit le thème clair ou sombre du système et tient sur un écran de téléphone.
 
-Le RSSI Wi-Fi n'est pas affiché : il n'existe que dans le statut WebSocket (`wifi_rssi`). En mode analogique, la ligne « Sortie 2 (GPIO 25) » affiche PWM : la valeur de la sortie se lit dans « Sortie PWM ».
+| Onglet | Contenu |
+|---|---|
+| **Mesure** | état, position du buffer en pourcentage de la pleine échelle avec sa jauge, écart filtré en mV, sortie (rapport cyclique et tension approchée en volts), les deux capteurs en mV avec leur écart au neutre, courbe de la dernière minute |
+| **Calibration** | valeurs en mémoire, capture du neutre et de la pleine échelle, zone neutre, hystérésis, filtrage |
+| **Réglages** | mode de sortie, état du Wi-Fi avec le niveau de signal en dBm, identifiants, redémarrage du module |
+
+La page écrit « traction » là où Happy Hare et le reste de ce document disent « tension », pour qu'on ne la confonde pas avec une tension électrique. Les volts affichés pour la sortie sont calculés (rapport cyclique × 3,3 V), pas mesurés. En type P, la ligne GPIO 26 n'est pas affichée : cette sortie ne sert qu'au type D.
+
+Les commandes qui touchent à la calibration, au mode de sortie ou au réseau demandent un second clic de confirmation.
+
+### Verrou des écritures
+La lecture est libre. Toute écriture, depuis la page comme depuis un script, exige une session déverrouillée par la clé du réseau Wi-Fi enregistré dans le module.
+
+La page est servie en HTTP : la clé n'est donc jamais envoyée. À la connexion, le module envoie un défi aléatoire ; le client répond par `HMAC-SHA256(clé, défi)` en hexadécimal, et le module compare.
+
+- Le déverrouillage vaut pour la connexion WebSocket en cours. La page garde la clé en mémoire vive pour rouvrir la session après une reconnexion, et l'oublie au rechargement ou sur « Verrouiller ».
+- Une tentative par seconde au plus, et un défi neuf à chaque tentative.
+- L'OTA ne prend sa clé qu'au démarrage : après un changement de réseau, redémarrez le module pour qu'elle suive.
+
+Depuis un script :
+```python
+# A la connexion, le module envoie {"type": "auth", "locked": true, "nonce": "..."}
+reponse = hmac.new(os.environ["STRESS_FILAMENT_KEY"].encode(), nonce.encode(), hashlib.sha256).hexdigest()
+await ws.send(json.dumps({"cmd": "unlock", "response": reponse}))
+# Reponse : {"type": "auth", "locked": false}, ou "error": "bad_key" / "retry" avec un nouveau defi
+```
+Une écriture tentée sans déverrouillage renvoie `{"type": "auth", "locked": true, "error": "locked"}` et n'a aucun effet. `{"cmd": "lock"}` referme la session.
 
 ### Calibration
 Les valeurs sont **en millivolts**, lues avec `analogReadMilliVolts()`. Tant qu'aucune calibration valide n'est enregistrée, la mesure n'a pas de référence.
@@ -201,8 +240,11 @@ Les valeurs sont **en millivolts**, lues avec `analogReadMilliVolts()`. Tant qu'
 | `set_analog_output` | `enabled` | active ou désactive la sortie analogique |
 | `set_wifi` | `ssid`, `password` | enregistre les identifiants et lance la connexion |
 | `forget_wifi` | | efface les identifiants enregistrés par le module, sans couper la connexion en cours ; au redémarrage, le pilote Wi-Fi peut encore se reconnecter avec ceux qu'il a gardés |
+| `reboot` | | redémarre le module après une demi-seconde ; la sortie décroche quelques secondes, à éviter pendant une impression |
 
 Trois clés s'envoient sans `cmd` : `send_updates` (active ou coupe l'envoi du statut), `interval_ms` (période d'envoi, 200 ms par défaut) et `log_category` (filtre des messages de journal).
+
+Toutes ces commandes et ces trois clés sont des écritures : elles passent par le [verrou](#verrou-des-écritures).
 
 #### Procédure recommandée : par les deux butées
 
@@ -211,7 +253,7 @@ Le point neutre de ce buffer n'est pas sa position de repos : le ressort pousse 
 1. Buffer au repos, donc en butée de compression : relevez S1 et S2 dans l'interface web.
 2. Buffer tenu en butée de tension : relevez de nouveau S1 et S2.
 3. Le neutre de chaque capteur est le milieu de ses deux relevés. La pleine échelle est la moitié de l'écart de `S1 - S2` entre les deux butées, diminuée de quelques unités (l'amplitude du bruit) pour que les butées saturent franchement la sortie.
-4. Envoyez le résultat sur le WebSocket `/ws` : `{"cmd": "set_neutral", "n1": 1708, "n2": 1689, "span": 125}`.
+4. Envoyez le résultat sur le WebSocket `/ws`, session déverrouillée : `{"cmd": "set_neutral", "n1": 1708, "n2": 1689, "span": 125}`.
 
 Les valeurs de cet exemple sont celles de la machine de test : butées relevées à 1753 / 1607 mV et à 1662 / 1770 mV, soit une course de ±127 autour du milieu.
 
@@ -242,9 +284,10 @@ Refaites cette calibration chaque fois que l'aimant est déplacé. S'il n'est pa
 ├── src/
 │   ├── main.cpp            # lecture des capteurs, sorties, serveur web
 │   ├── net.h / net.cpp     # réseau non bloquant (machine à états, NVS, point d'accès)
+│   ├── auth.h / auth.cpp   # verrou des écritures : défi aléatoire et vérification HMAC-SHA256
 ├── lib/stress_core/        # logique de mesure pure, sans Arduino
 ├── test/test_stress_core/  # tests unitaires (Unity)
-├── data/                   # interface web (index.html, style.css, script.js)
+├── data/                   # interface web (index.html, style.css, script.js, sha256.js)
 ├── docs/                   # images de ce README
 ├── platformio.ini          # environnements USB, OTA et tests natifs
 ├── CHANGEMENTS.md          # journal technique : refonte, mesures, erreurs corrigées
