@@ -33,10 +33,10 @@ namespace netcore {
 // visible mais connexion refusee, ecart double a chaque refus).
 constexpr uint32_t kEcartInitialMs = 30000;
 constexpr uint32_t kEcartMaxMs     = 300000;
-// Un scan complet en AP+STA dure moins de 5 s (13 canaux, 300 ms au plus
-// chacun, et le coeur Arduino le declare en echec a 6 s). Au-dela, il est
-// considere comme bloque.
-constexpr uint32_t kRechercheMaxMs = 10000;
+// En AP+STA, un scan complet depasse les 6 s au bout desquelles le coeur
+// Arduino le declare en echec (constat du 24/10) : net.cpp guette donc la fin
+// reelle du scan, et c'est ce delai-ci qui le declare bloque.
+constexpr uint32_t kRechercheMaxMs = 25000;
 // Meme duree qu'une tentative ordinaire (net::kConnectTimeoutMs).
 constexpr uint32_t kTentativeMaxMs = 15000;
 

@@ -281,6 +281,17 @@ static void notifierClients() {
     doc["wifi_ip"]          = n.ip;
     doc["wifi_ssid"]        = n.ssid;
     doc["wifi_rssi"]        = n.rssi;
+    JsonObject r = doc["wifi_retour"].to<JsonObject>();
+    r["actif"]      = n.retour.actif;
+    r["etape"]      = n.retour.etape;
+    r["mode"]       = n.retour.mode;
+    r["recherches"] = n.retour.recherches;
+    r["scan_lance"] = n.retour.scanLance;
+    r["scan_fini"]  = n.retour.scanFini;
+    r["scan_ms"]    = n.retour.scanMs;
+    r["vu"]         = n.retour.vu;
+    r["tentatives"] = n.retour.tentatives;
+    r["bits"]       = n.retour.bits;
 
     String out;
     serializeJson(doc, out);

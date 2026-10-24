@@ -695,8 +695,15 @@ mesure et la sortie vers la MMB ne dépendent pas du réseau (section 1).
   relancerait la station en boucle sur un réseau absent, chaque essai balayant
   les canaux au détriment du point d'accès. Elle est rétablie au retour en
   station.
-- Seul effet visible : un appareil connecté au point d'accès de repli perd la
-  liaison quelques secondes à chaque recherche.
+- Effet visible : chaque recherche éjecte du point d'accès de repli l'appareil
+  qui y est connecté (constaté avec un PC sous Windows, qui ne se reconnecte pas
+  seul). Pour envoyer un firmware par ce point d'accès, partir une dizaine de
+  secondes après une recherche (compteur `recherches` ci-dessous).
+- Fin d'une recherche jugée sur le bit `WIFI_SCAN_DONE_BIT`, pas sur
+  `scanComplete()` seul : le cœur déclare un scan en échec au bout de
+  20 × 300 ms = 6 s, alors qu'en AP+STA un scan complet a duré de 3,0 à 6,5 s
+  sur le module. Première version : toutes les recherches finissaient en échec
+  et le réseau n'était jamais vu. `net_core` déclare un scan bloqué à 25 s.
 - `WiFi.status()` garde la valeur de l'échec précédent jusqu'au prochain
   événement : une tentative se juge donc au seul délai, sinon chaque tentative
   serait abandonnée dès son lancement.
@@ -710,10 +717,31 @@ La décision vit dans `lib/net_core`, sans dépendance Arduino, sur le modèle d
 `millis()`, recul plafonné, recherche bloquée, scénario de la panne du 24/10).
 Cinq mutations du code sont toutes détectées.
 
+Sans liaison série, le retour se suit par l'objet `wifi_retour` du JSON : `actif`
+(réseau guetté), `etape` (0 attente, 1 recherche, 2 tentative), `mode`
+(`WiFi.getMode()`), `recherches`, `scan_lance` (retour de `scanNetworks()`),
+`scan_fini` (réseaux trouvés au dernier scan, négatif en cas d'échec), `scan_ms`,
+`vu`, `tentatives`, `bits` (bits d'état Wi-Fi du cœur). En repli, il se lit par
+le point d'accès, sur `ws://192.168.4.1/ws`.
+
+### Ce qui a été vérifié sur le module, 2026-10-24
+
+Imprimante à l'arrêt, radio 2,4 GHz du pont coupée (`wifi down radio0`) puis
+rétablie, le PC relié au point d'accès de repli pour lire `wifi_retour`.
+
+| Essai | Résultat |
+|---|---|
+| Première version, coupure de 189 s | jamais revenu ; aucune trame de la station du module vue par le pont |
+| Version de diagnostic | recherches lancées (`scan_lance` -1) mais toutes en échec (`scan_fini` -2), bit de fin levé ensuite |
+| Correctif, coupure de 229 s | repli 121 s après la coupure, scans de 3,0 à 6,5 s, réseau vu à la 4e recherche, associé 19 s et de retour sur le LAN 22 s après le rétablissement |
+| Tenue | connecté 75 s, puis reconnexion normale après un redémarrage de la radio du pont |
+| Point d'accès de repli après retour | éteint : plus aucune trame de son adresse en 20 s |
+
+Les envois de firmware se sont faits par le point d'accès de repli (clé du
+réseau enregistré), sans couper l'alimentation du module.
+
 ### Ce qui n'a pas été vérifié
 
-- Rien n'a encore tourné sur le module : ni le passage en AP+STA, ni le retour.
-  Essai prévu après envoi, imprimante à l'arrêt : AP du pont coupé 2 min, puis
-  rétabli, en mesurant le délai de retour.
-- Que la station reste associée quand le point d'accès est coupé
-  (`softAPdisconnect(true)` fait passer d'AP+STA à STA seul).
+- Le cas « réseau visible mais clé refusée » et son recul jusqu'à 5 min.
+- Une coupure longue (plusieurs heures), et le passage par zéro de `millis()`
+  autrement qu'en test natif.

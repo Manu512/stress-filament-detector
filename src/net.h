@@ -27,6 +27,21 @@ enum class Phase : uint8_t {
                  // retour du reseau enregistre et y revient seul (net_core.h)
 };
 
+// Compteurs du retour automatique en station, publies dans le JSON : sans
+// liaison serie, c'est le seul moyen de voir ou il en est.
+struct DiagRetour {
+    bool     actif       = false;  // un reseau enregistre est guette
+    uint8_t  etape       = 0;      // netcore::Etape
+    uint8_t  mode        = 0;      // WiFi.getMode() : 1 STA, 2 AP, 3 AP+STA
+    uint32_t recherches  = 0;      // scans demandes
+    int16_t  scanLance   = 0;      // retour du dernier scanNetworks() (-1 lance, -2 refuse)
+    int16_t  scanFini    = 0;      // dernier scanComplete() termine (>= 0 : reseaux vus)
+    uint32_t scanMs      = 0;      // duree du dernier scan termine
+    uint32_t vu          = 0;      // recherches ou le reseau enregistre figurait
+    uint32_t tentatives  = 0;
+    uint32_t bits        = 0;      // bits d'etat WiFi du coeur, au dernier tour
+};
+
 struct Status {
     Phase   phase       = Phase::Idle;
     uint32_t attempts   = 0;
@@ -36,6 +51,7 @@ struct Status {
     // tient. Vaut 0 hors connexion station : en point d'acces la notion n'a
     // pas de sens, et WiFi.RSSI() y renvoie une valeur arbitraire.
     int8_t  rssi        = 0;
+    DiagRetour retour;
 };
 
 // Duree d'une tentative avant abandon, et attente entre deux tentatives.

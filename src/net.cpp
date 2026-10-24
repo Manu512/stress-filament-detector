@@ -26,6 +26,7 @@ uint8_t  echecsSuite  = 0;
 
 netcore::Retour retour;
 bool            retourPossible = false;
+uint32_t        debutScan      = 0;
 
 // L'espace NVS est distinct de celui de la calibration ("hall") pour qu'un
 // effacement des identifiants ne touche pas aux reglages capteurs.
@@ -101,6 +102,7 @@ void basculerEnAp() {
     // un reseau absent, et chaque essai balaie les canaux au detriment du point
     // d'acces. C'est net_core qui decide quand chercher et quand se connecter.
     retourPossible = !cible.isEmpty();
+    etat.retour.actif = retourPossible;
     WiFi.setAutoReconnect(false);
     WiFi.mode(retourPossible ? WIFI_AP_STA : WIFI_AP);
     WiFi.setHostname(host.c_str());
@@ -122,27 +124,44 @@ void suivreRetour(uint32_t maintenant) {
     o.maintenant = maintenant;
     o.connecte   = WiFi.status() == WL_CONNECTED;
 
-    if (retour.etape == netcore::Etape::Recherche) {
+    if (retour.etape == netcore::Etape::Recherche &&
+        (WiFi.getStatusBits() & WIFI_SCAN_DONE_BIT)) {
+        // Fin du scan jugee sur le bit pose par l'evenement SCAN_DONE, pas sur
+        // scanComplete() seul : le coeur declare un scan en echec au bout de
+        // 20 x 300 ms = 6 s, or en AP+STA un scan complet dure plus longtemps.
+        // Constat du 24/10 : chaque recherche rendait -2 alors que le scan
+        // aboutissait ensuite, et le reseau n'etait jamais vu. Le bit leve,
+        // _scanDone() a remis le chrono du coeur a zero : scanComplete() rend
+        // alors le nombre de reseaux. net_core borne l'attente.
         const int16_t n = WiFi.scanComplete();
-        if (n != WIFI_SCAN_RUNNING) {
-            // n < 0 : scan en echec ou declare perime par le coeur, vaut absent.
-            o.rechercheFinie = true;
-            for (int16_t i = 0; i < n && !o.reseauVu; ++i) {
-                o.reseauVu = WiFi.SSID(i) == cible;
-            }
-            WiFi.scanDelete();
+        o.rechercheFinie = true;
+        for (int16_t i = 0; i < n && !o.reseauVu; ++i) {
+            o.reseauVu = WiFi.SSID(i) == cible;
         }
+        WiFi.scanDelete();
+        etat.retour.scanFini = n;
+        etat.retour.scanMs   = maintenant - debutScan;
+        if (o.reseauVu) etat.retour.vu++;
     }
 
-    switch (netcore::avancer(retour, o)) {
+    const netcore::Ordre ordre = netcore::avancer(retour, o);
+    etat.retour.etape = (uint8_t)retour.etape;
+    etat.retour.mode  = (uint8_t)WiFi.getMode();
+    etat.retour.bits  = (uint32_t)WiFi.getStatusBits();
+
+    switch (ordre) {
     case netcore::Ordre::LancerRecherche:
-        WiFi.scanNetworks(true);   // asynchrone, 300 ms au plus par canal
+        // asynchrone, 300 ms au plus par canal
+        debutScan = maintenant;
+        etat.retour.scanLance = WiFi.scanNetworks(true);
+        etat.retour.recherches++;
         break;
     case netcore::Ordre::AbandonnerRecherche:
         arreterRecherche();
         break;
     case netcore::Ordre::LancerTentative:
         connecterStation();
+        etat.retour.tentatives++;
         break;
     case netcore::Ordre::AbandonnerTentative:
         WiFi.disconnect();         // la station seule : le point d'acces reste
@@ -150,6 +169,9 @@ void suivreRetour(uint32_t maintenant) {
     case netcore::Ordre::RevenirEnStation:
         WiFi.softAPdisconnect(true);
         WiFi.setAutoReconnect(true);
+        etat.retour.actif = false;
+        etat.retour.mode  = (uint8_t)WiFi.getMode();
+        etat.retour.bits  = (uint32_t)WiFi.getStatusBits();
         etat.ssid   = cible;
         etat.ip     = WiFi.localIP().toString();
         etat.rssi   = WiFi.RSSI();
