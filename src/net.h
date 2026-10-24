@@ -23,7 +23,8 @@ enum class Phase : uint8_t {
     Connecting,  // tentative en cours
     Connected,   // associe, IP obtenue
     Retrying,    // echec, attente avant nouvel essai
-    AccessPoint, // repli : point d'acces de configuration
+    AccessPoint, // repli : point d'acces de configuration, qui guette le
+                 // retour du reseau enregistre et y revient seul (net_core.h)
 };
 
 struct Status {

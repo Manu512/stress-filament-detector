@@ -670,3 +670,50 @@ la sortie. Essais menés sans la clé :
 - Le module en point d'accès de repli avec des identifiants connus du seul
   pilote Wi-Fi.
 - Aucun test automatisé ne couvre le verrou ni la page.
+
+## 12. Retour automatique en station depuis le point d'accès de repli, 2026-10-24
+
+Après trois échecs de connexion (environ 85 s), le module bascule sur son point
+d'accès `stress-filament-xxxxxx` et n'en sortait plus jamais, même une fois le
+réseau revenu. Le 24/10, la radio 2,4 GHz du pont Wi-Fi des imprimantes s'est
+figée vers 14:47 : réparé à 17:15, le pont n'a pas suffi, le module est resté
+sur son point d'accès et seule une coupure d'alimentation pouvait le ramener. La
+mesure et la sortie vers la MMB ne dépendent pas du réseau (section 1).
+
+- En repli, quand un réseau est enregistré, le module passe en AP+STA : son point
+  d'accès reste en service, et il cherche le réseau enregistré toutes les 30 s
+  par un scan asynchrone.
+- Réseau vu : connexion, point d'accès maintenu. Connecté : le point d'accès est
+  coupé, retour à l'état normal. Délai attendu : 30 s au plus après le retour du
+  réseau, plus le temps de connexion.
+- Réseau visible mais connexion refusée en 15 s (clé changée) : l'écart entre deux
+  recherches double à chaque refus, jusqu'à 5 min, pour que le point d'accès
+  reste utilisable pour reconfigurer le module.
+- Module neuf, sans aucun réseau enregistré : pas de recherche, comportement
+  inchangé.
+- La reconnexion automatique du cœur Arduino est coupée pendant le repli : elle
+  relancerait la station en boucle sur un réseau absent, chaque essai balayant
+  les canaux au détriment du point d'accès. Elle est rétablie au retour en
+  station.
+- Seul effet visible : un appareil connecté au point d'accès de repli perd la
+  liaison quelques secondes à chaque recherche.
+- `WiFi.status()` garde la valeur de l'échec précédent jusqu'au prochain
+  événement : une tentative se juge donc au seul délai, sinon chaque tentative
+  serait abandonnée dès son lancement.
+- Le SSID guetté vient de la NVS du module, ou à défaut de la configuration du
+  pilote (`esp_wifi_get_config`) : `WiFi.SSID()` ne donne que le réseau déjà
+  associé. Le champ `wifi_ssid` affiche désormais aussi ce SSID pendant une
+  tentative avec les identifiants du pilote, au lieu d'une chaîne vide.
+
+La décision vit dans `lib/net_core`, sans dépendance Arduino, sur le modèle de
+`stress_core` : 19 tests natifs (échéances à travers le retour à zéro de
+`millis()`, recul plafonné, recherche bloquée, scénario de la panne du 24/10).
+Cinq mutations du code sont toutes détectées.
+
+### Ce qui n'a pas été vérifié
+
+- Rien n'a encore tourné sur le module : ni le passage en AP+STA, ni le retour.
+  Essai prévu après envoi, imprimante à l'arrêt : AP du pont coupé 2 min, puis
+  rétabli, en mesurant le délai de retour.
+- Que la station reste associée quand le point d'accès est coupé
+  (`softAPdisconnect(true)` fait passer d'AP+STA à STA seul).

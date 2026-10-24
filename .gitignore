@@ -31,3 +31,4 @@ Thumbs.db
 # descend pas dans un repertoire deja ignore.
 lib/*
 !lib/stress_core/
+!lib/net_core/
